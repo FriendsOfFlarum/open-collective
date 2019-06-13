@@ -22,8 +22,8 @@ use Illuminate\Events\Dispatcher;
 return [
     (new Extend\Frontend('admin'))
         ->js(__DIR__.'/js/dist/admin.js'),
-    new Extend\Locales(__DIR__ . '/resources/locale'),
-    new EnableConsole,
+    new Extend\Locales(__DIR__.'/resources/locale'),
+    new EnableConsole(),
     new ScheduleCommand(function (Schedule $schedule) {
         $schedule->command(UpdateCommand::class)
             ->hourly()
@@ -37,5 +37,5 @@ return [
                 $event->addCommand(UpdateCommand::class);
             }
         });
-    })
+    }),
 ];

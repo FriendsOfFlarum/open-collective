@@ -1,8 +1,15 @@
 <?php
 
+/*
+ * This file is part of fof/open-collective.
+ *
+ * Copyright (c) 2019 FriendsOfFlarum.
+ *
+ * For the full copyright and license information, please view the LICENSE.md
+ * file that was distributed with this source code.
+ */
 
 namespace FoF\OpenCollective\Console;
-
 
 use Carbon\Carbon;
 use EUAutomation\GraphQL\Client;
@@ -41,7 +48,8 @@ class UpdateCommand extends Command
         $this->prefix = Carbon::now()->format('M d, Y @ h:m A');
     }
 
-    public function handle() {
+    public function handle()
+    {
         $this->line('');
 
         $apiKey = $this->settings->get('fof-open-collective.api_key');
@@ -50,10 +58,10 @@ class UpdateCommand extends Command
         $group = isset($groupId) ? Group::find((int) $groupId) : null;
 
         if (!isset($apiKey) || empty($apiKey)) {
-            throw new UnexpectedValueException("Open Collective API key must be provided");
-        } else if (!isset($slug) || empty($slug)) {
-            throw new UnexpectedValueException("Collective slug must be provided");
-        } else if (!isset($group)) {
+            throw new UnexpectedValueException('Open Collective API key must be provided');
+        } elseif (!isset($slug) || empty($slug)) {
+            throw new UnexpectedValueException('Collective slug must be provided');
+        } elseif (!isset($group)) {
             throw new UnexpectedValueException("Invalid group ID: '$groupId'");
         }
 
@@ -106,12 +114,13 @@ class UpdateCommand extends Command
 
         $this->info('Applying group changes...');
 
-        foreach($users as $user) {
+        foreach ($users as $user) {
             $this->info("|> - #$user->id $user->username");
         }
 
         if ($emails->isEmpty()) {
             $this->info('Done.');
+
             return;
         }
 
@@ -134,6 +143,6 @@ class UpdateCommand extends Command
 
     public function info($string, $verbosity = null)
     {
-        parent::info($this->prefix." | ".$string, $verbosity);
+        parent::info($this->prefix.' | '.$string, $verbosity);
     }
 }
