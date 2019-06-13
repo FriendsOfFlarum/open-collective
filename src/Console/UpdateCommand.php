@@ -38,7 +38,7 @@ class UpdateCommand extends Command
 
         $this->settings = $settings;
 
-        $this->prefix = Carbon::now()->format('M/d/Y @ h:m A');
+        $this->prefix = Carbon::now()->format('M d, Y @ h:m A');
     }
 
     public function handle() {
@@ -96,14 +96,19 @@ class UpdateCommand extends Command
             ->filter()
             ->unique();
 
-        $this->info("-> found {$emails->count()} member(s)");
+        $this->info("|> found {$emails->count()}");
 
         // Remove group from users that have it but shouldn't
 
-        $ids = $group->users()->whereNotIn('email', $emails)->get()->map->id;
-        $number = $group->users()->detach($ids);
+        $users = $group->users()->whereNotIn('email', $emails)->get();
 
-        $this->info("Removed group from {$number} user(s).");
+        $group->users()->detach($users->map->id);
+
+        $this->info('Applying group changes...');
+
+        foreach($users as $user) {
+            $this->info("|> - #$user->id $user->username");
+        }
 
         if ($emails->isEmpty()) {
             $this->info('Done.');
@@ -114,18 +119,16 @@ class UpdateCommand extends Command
 
         $users = User::where('is_email_confirmed', true)
             ->whereIn('email', $emails);
-        $num = 0;
 
         if ($users->count() != 0) {
             $users->get()->each(function ($user) use ($group, &$num) {
                 if (!$user->groups()->find($group->id)) {
+                    $this->info("|> + #$user->id $user->username");
                     $user->groups()->attach($group->id);
-                    $num++;
                 }
             });
         }
 
-        $this->info("Added group to {$num} user(s).");
         $this->info('Done.');
     }
 
