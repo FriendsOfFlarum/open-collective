@@ -18,6 +18,8 @@ use Flarum\Group\Group;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\User\User;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use UnexpectedValueException;
 
 class UpdateCommand extends Command
@@ -107,18 +109,25 @@ class UpdateCommand extends Command
         $this->info("|> found {$emails->count()}");
 
         // Remove group from users that have it but shouldn't
+        $usersQuery = User::query()->where('is_email_confirmed', true)
+            ->whereIn('email', $emails);
+        $usersManaging = $this->getUsersManaging($usersQuery);
 
-        $users = $group->users()->whereNotIn('email', $emails)->get();
+        $usersToRemove = $group->users()->whereIn('id', $usersManaging)->whereNotIn('email', $emails)->get();
 
-        $group->users()->detach($users->map->id);
+        $group->users()->detach($usersToRemove->map->id);
 
         $this->info('Applying group changes...');
 
-        foreach ($users as $user) {
+        foreach ($usersToRemove as $user) {
+            $usersManaging = $usersManaging->reject($user->id);
+
             $this->info("|> - #$user->id $user->username");
         }
 
         if ($emails->isEmpty()) {
+            $this->updateUsersManaging($usersManaging);
+
             $this->info('Done.');
 
             return;
@@ -126,17 +135,18 @@ class UpdateCommand extends Command
 
         // Add group to users that should have it
 
-        $users = User::where('is_email_confirmed', true)
-            ->whereIn('email', $emails);
-
-        if ($users->count() != 0) {
-            $users->get()->each(function ($user) use ($group, &$num) {
+        if ($usersQuery->count() != 0) {
+            $usersQuery->get()->each(function ($user) use ($group, &$usersManaging) {
                 if (!$user->groups()->find($group->id)) {
                     $this->info("|> + #$user->id $user->username");
                     $user->groups()->attach($group->id);
+
+                    $usersManaging->push($user->id);
                 }
             });
         }
+
+        $this->updateUsersManaging($usersManaging);
 
         $this->info('Done.');
     }
@@ -144,5 +154,22 @@ class UpdateCommand extends Command
     public function info($string, $verbosity = null)
     {
         parent::info($this->prefix.' | '.$string, $verbosity);
+    }
+
+    protected function getUsersManaging(Builder $usersWithEmail) {
+        $setting = $this->settings->get('fof-open-collective.users');
+        $users = $setting != null
+            ? collect(json_decode($setting))
+            : $usersWithEmail->pluck('id');
+
+        if (!$setting) {
+            $this->updateUsersManaging($users);
+        }
+
+        return $users;
+    }
+
+    protected function updateUsersManaging(Collection $users) {
+        $this->settings->set('fof-open-collective.users', $users->values()->unique()->toJson());
     }
 }
