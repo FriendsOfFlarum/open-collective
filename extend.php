@@ -13,6 +13,7 @@ namespace FoF\OpenCollective;
 
 use Flarum\Console\Event\Configuring;
 use Flarum\Extend;
+use FoF\Components\Extend\AddFofComponents;
 use FoF\Console\Extend\EnableConsole;
 use FoF\Console\Extend\ScheduleCommand;
 use FoF\OpenCollective\Console\UpdateCommand;
@@ -20,9 +21,12 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Events\Dispatcher;
 
 return [
+    new AddFofComponents(),
+
     (new Extend\Frontend('admin'))
         ->js(__DIR__.'/js/dist/admin.js'),
     new Extend\Locales(__DIR__.'/resources/locale'),
+
     new EnableConsole(),
     new ScheduleCommand(function (Schedule $schedule) {
         $schedule->command(UpdateCommand::class)

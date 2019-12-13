@@ -1,6 +1,8 @@
-import SettingsModal from '@fof/components/admin/settings/SettingsModal';
-import StringItem from '@fof/components/admin/settings/items/StringItem';
-import SelectItem from '@fof/components/admin/settings/items/SelectItem';
+import { settings } from '@fof-components';
+const {
+    SettingsModal,
+    items: { StringItem, SelectItem },
+} = settings;
 
 app.initializers.add('fof/open-collective', () => {
     app.extensionSettings['fof-open-collective'] = () =>
@@ -9,7 +11,9 @@ app.initializers.add('fof/open-collective', () => {
                 title: app.translator.trans('fof-open-collective.admin.settings.title'),
                 size: 'medium',
                 items: [
-                    <p>{app.translator.trans('fof-open-collective.admin.settings.desc')}</p>,
+                    <p>{app.translator.trans('fof-open-collective.admin.settings.desc', {
+                      a: <a href="https://opencollective.com/applications" target="_blank" />
+                    })}</p>,
                     <StringItem key="fof-open-collective.api_key" required type="password">
                         {app.translator.trans('fof-open-collective.admin.settings.api_key_label')}
                     </StringItem>,
