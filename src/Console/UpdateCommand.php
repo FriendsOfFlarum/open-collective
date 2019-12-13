@@ -156,7 +156,8 @@ class UpdateCommand extends Command
         parent::info($this->prefix.' | '.$string, $verbosity);
     }
 
-    protected function getUsersManaging(Builder $usersWithEmail) {
+    protected function getUsersManaging(Builder $usersWithEmail)
+    {
         $setting = $this->settings->get('fof-open-collective.users');
         $users = $setting != null
             ? collect(json_decode($setting))
@@ -169,7 +170,8 @@ class UpdateCommand extends Command
         return $users;
     }
 
-    protected function updateUsersManaging(Collection $users) {
+    protected function updateUsersManaging(Collection $users)
+    {
         $this->settings->set('fof-open-collective.users', $users->values()->unique()->toJson());
     }
 }
