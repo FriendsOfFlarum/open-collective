@@ -32,7 +32,7 @@ return [
         $schedule->command(UpdateCommand::class)
             ->hourly()
             ->withoutOverlapping()
-            ->appendOutputTo($paths->storage.('logs/fof-open-collective.log'));
+            ->appendOutputTo($paths->storage.('/logs/fof-open-collective.log'));
     }),
 
     (new Extend\Console())
