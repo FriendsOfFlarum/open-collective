@@ -48,7 +48,7 @@ class UpdateCommand extends Command
         $apiKey = $this->settings->get('fof-open-collective.api_key');
         $slug = strtolower($this->settings->get('fof-open-collective.slug'));
         $groupId = $this->settings->get('fof-open-collective.group_id');
-        $group = isset($groupId) ? Group::find((int)$groupId) : null;
+        $group = isset($groupId) ? Group::find((int) $groupId) : null;
 
         if (!isset($apiKey) || empty($apiKey)) {
             throw new UnexpectedValueException('Open Collective API key must be provided');
@@ -146,7 +146,7 @@ QUERY;
 
     public function info($string, $verbosity = null)
     {
-        parent::info($this->prefix . ' | ' . $string, $verbosity);
+        parent::info($this->prefix.' | '.$string, $verbosity);
     }
 
     protected function getUsersManaging(Builder $usersWithEmail)
