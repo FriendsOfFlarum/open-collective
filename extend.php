@@ -18,16 +18,16 @@ use Illuminate\Console\Scheduling\Event;
 
 return [
     (new Extend\Frontend('admin'))
-        ->js(__DIR__ . '/js/dist/admin.js'),
-    new Extend\Locales(__DIR__ . '/resources/locale'),
+        ->js(__DIR__.'/js/dist/admin.js'),
+    new Extend\Locales(__DIR__.'/resources/locale'),
 
-    (new Extend\Console)
+    (new Extend\Console())
         ->command(UpdateCommand::class)
         ->schedule(UpdateCommand::class, function (Event $event) {
-        $paths = resolve(Paths::class);
-        $event
+            $paths = resolve(Paths::class);
+            $event
             ->hourly()
             ->withoutOverlapping()
             ->appendOutputTo($paths->storage.('/logs/fof-open-collective.log'));
-    }),
+        }),
 ];
