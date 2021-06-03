@@ -12,11 +12,11 @@
 namespace FoF\OpenCollective\Console;
 
 use Carbon\Carbon;
-use EUAutomation\GraphQL\Client;
 use Exception;
 use Flarum\Group\Group;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\User\User;
+use GraphQL\Client;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -24,21 +24,12 @@ use UnexpectedValueException;
 
 class UpdateCommand extends Command
 {
-    /**
-     * {@inheritdoc}
-     */
     protected $signature = 'fof:open-collective:update';
-
-    /**
-     * {@inheritdoc}
-     */
     protected $description = 'Update groups of Open Collective supporters.';
 
     protected $prefix;
 
-    /**
-     * @var SettingsRepositoryInterface
-     */
+    /** @var SettingsRepositoryInterface */
     private $settings;
 
     public function __construct(SettingsRepositoryInterface $settings)
@@ -57,7 +48,7 @@ class UpdateCommand extends Command
         $apiKey = $this->settings->get('fof-open-collective.api_key');
         $slug = strtolower($this->settings->get('fof-open-collective.slug'));
         $groupId = $this->settings->get('fof-open-collective.group_id');
-        $group = isset($groupId) ? Group::find((int) $groupId) : null;
+        $group = isset($groupId) ? Group::find((int)$groupId) : null;
 
         if (!isset($apiKey) || empty($apiKey)) {
             throw new UnexpectedValueException('Open Collective API key must be provided');
@@ -71,35 +62,37 @@ class UpdateCommand extends Command
 
         // Retrieve emails from Open Collective GraphQL API
 
-        $client = new Client('https://api.opencollective.com/graphql/v2');
-        $json = $client->json('
-            query collective($slug: String) {
-              collective(slug: $slug) {
-                name
-                slug
+        $client = new Client('https://api.opencollective.com/graphql/v2', ['Api-Key' => $apiKey]);
+        $gql = <<<QUERY
+query collective($slug: String) {
+  collective(slug: $slug) {
+    name
+    slug
 
-                members(role: BACKER, accountType: INDIVIDUAL) {
-                  nodes {
-                    account {
-                      ... on Individual {
-                        email
-                      }
+    members(role: BACKER, accountType: INDIVIDUAL) {
+      nodes {
+        account {
+          ... on Individual {
+            email
+          }
 
-                      ... on Organization {
-                        email
-                      }
-                    }
-                  }
-                }
-              }
-            }
-        ', ['slug' => $slug], ['Api-Key' => $apiKey]);
+          ... on Organization {
+            email
+          }
+        }
+      }
+    }
+  }
+}
+QUERY;
 
-        if (!isset($json->data->collective)) {
+        $results = $client->runRawQuery($gql, false, ['slug' => $slug]);
+
+        if (!isset($results->getData()->collective)) {
             throw new Exception("Collective '$slug' not found");
         }
 
-        $emails = collect($json->data->collective->members->nodes)
+        $emails = collect($results->getData()->collective->members->nodes)
             ->map(function ($m) {
                 return $m->account->email;
             })
@@ -153,14 +146,14 @@ class UpdateCommand extends Command
 
     public function info($string, $verbosity = null)
     {
-        parent::info($this->prefix.' | '.$string, $verbosity);
+        parent::info($this->prefix . ' | ' . $string, $verbosity);
     }
 
     protected function getUsersManaging(Builder $usersWithEmail)
     {
         $setting = $this->settings->get('fof-open-collective.users');
         $users = $setting != null
-            ? collect(json_decode($setting))
+            ? collect(\json_decode($setting))
             : $usersWithEmail->pluck('id');
 
         if (!$setting) {
