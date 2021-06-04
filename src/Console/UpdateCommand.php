@@ -63,9 +63,9 @@ class UpdateCommand extends Command
         // Retrieve emails from Open Collective GraphQL API
 
         $client = new Client('https://api.opencollective.com/graphql/v2', ['Api-Key' => $apiKey]);
-        $gql = <<<QUERY
-query collective(\$slug: String) {
-  collective(slug: \$slug) {
+        $gql = <<<'QUERY'
+query collective($slug: String) {
+  collective(slug: $slug) {
     name
     slug
 
