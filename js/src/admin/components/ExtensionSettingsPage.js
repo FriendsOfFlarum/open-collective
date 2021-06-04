@@ -2,10 +2,6 @@ import app from 'flarum/admin/app';
 import ExtensionPage from 'flarum/admin/components/ExtensionPage';
 
 export default class ExtensionSettingsPage extends ExtensionPage {
-    oninit(vnode) {
-        super.oninit(vnode);
-    }
-
     content() {
         return [
             <div className="container">
@@ -24,7 +20,7 @@ export default class ExtensionSettingsPage extends ExtensionPage {
 
                     {this.buildSettingComponent({
                         type: 'text',
-                        setting: 'fof-open-collective.slig',
+                        setting: 'fof-open-collective.slug',
                         label: app.translator.trans('fof-open-collective.admin.settings.slug_label'),
                     })}
 
