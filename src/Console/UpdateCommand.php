@@ -64,8 +64,8 @@ class UpdateCommand extends Command
 
         $client = new Client('https://api.opencollective.com/graphql/v2', ['Api-Key' => $apiKey]);
         $gql = <<<QUERY
-query collective($slug: String) {
-  collective(slug: $slug) {
+query collective(\$slug: String) {
+  collective(slug: \$slug) {
     name
     slug
 
