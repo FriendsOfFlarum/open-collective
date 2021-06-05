@@ -6,10 +6,10 @@ A [Flarum](http://flarum.org) extension. Open Collective integration for your Fl
 
 ### Installation
 
-Use [Bazaar](https://discuss.flarum.org/d/5151-flagrow-bazaar-the-extension-marketplace) or install manually with composer:
+Install manually with composer:
 
 ```sh
-composer require fof/open-collective
+composer require fof/open-collective:*
 ```
 
 #### Scheduler

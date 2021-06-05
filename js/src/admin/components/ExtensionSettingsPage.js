@@ -1,17 +1,7 @@
-import ExtensionPage from 'flarum/components/ExtensionPage';
-import { settings } from '@fof-components';
-
-const {
-    items: { StringItem, SelectItem },
-} = settings;
+import app from 'flarum/admin/app';
+import ExtensionPage from 'flarum/admin/components/ExtensionPage';
 
 export default class ExtensionSettingsPage extends ExtensionPage {
-    oninit(vnode) {
-        super.oninit(vnode);
-
-        this.setting = this.setting.bind(this);
-    }
-
     content() {
         return [
             <div className="container">
@@ -21,24 +11,29 @@ export default class ExtensionSettingsPage extends ExtensionPage {
                             a: <a href="https://opencollective.com/applications" target="_blank" />,
                         })}
                     </p>
-                    <StringItem setting={this.setting} name="fof-open-collective.api_key" required type="password">
-                        {app.translator.trans('fof-open-collective.admin.settings.api_key_label')}
-                    </StringItem>
-                    <StringItem setting={this.setting} name="fof-open-collective.slug" required>
-                        {app.translator.trans('fof-open-collective.admin.settings.slug_label')}
-                    </StringItem>
-                    <div className="Form-group">
-                        <label>{app.translator.trans('fof-open-collective.admin.settings.group_label')}</label>
 
-                        {SelectItem.component({
+                    {this.buildSettingComponent({
+                        type: 'text',
+                        setting: 'fof-open-collective.api_key',
+                        label: app.translator.trans('fof-open-collective.admin.settings.api_key_label'),
+                    })}
+
+                    {this.buildSettingComponent({
+                        type: 'text',
+                        setting: 'fof-open-collective.slug',
+                        label: app.translator.trans('fof-open-collective.admin.settings.slug_label'),
+                    })}
+
+                    <div className="Form-group">
+                        {this.buildSettingComponent({
+                            type: 'select',
+                            setting: 'fof-open-collective.group_id',
                             options: app.store.all('groups').reduce((o, g) => {
                                 o[g.id()] = g.nameSingular();
 
                                 return o;
                             }, {}),
-                            name: 'fof-open-collective.group_id',
-                            required: true,
-                            setting: this.setting,
+                            label: app.translator.trans('fof-open-collective.admin.settings.group_label'),
                         })}
                     </div>
                     {this.submitButton()}
