@@ -28,6 +28,6 @@ return [
             $event
             ->hourly()
             ->withoutOverlapping()
-            ->appendOutputTo($paths->storage.('/logs/fof-open-collective.log'));
+            ->appendOutputTo($paths->storage.'/logs/fof-open-collective.log');
         }),
 ];
