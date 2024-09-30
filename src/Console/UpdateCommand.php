@@ -58,11 +58,19 @@ class UpdateCommand extends Command
             throw new UnexpectedValueException("Invalid group ID: '$groupId'");
         }
 
-        $this->info('Retrieving Open Collective members...');
+        $this->info("Retrieving Open Collective members for '$slug'...");
 
         // Retrieve emails from Open Collective GraphQL API
+        $isLegacyApiKey = (int) $this->settings->get('fof-open-collective.use_legacy_api_key');
+        $header = $isLegacyApiKey ? 'Api-Key' : 'Personal-Token';
 
-        $client = new Client('https://api.opencollective.com/graphql/v2', ['Api-Key' => $apiKey]);
+        $this->info(sprintf("Authenticating using %s", str_replace('-', ' ', $header)));
+
+        if ($isLegacyApiKey) {
+            $this->warn('Using legacy API key. Please consider switching to a personal token.');
+        }
+
+        $client = new Client('https://api.opencollective.com/graphql/v2', [$header => $apiKey]);
         $gql = <<<'QUERY'
 query collective($slug: String) {
   collective(slug: $slug) {
@@ -92,14 +100,16 @@ QUERY;
             throw new Exception("Collective '$slug' not found");
         }
 
-        $emails = collect($results->getData()->collective->members->nodes)
+        $members = collect($results->getData()->collective->members->nodes);
+        $emails = $members
             ->map(function ($m) {
                 return $m->account->email;
             })
             ->filter()
             ->unique();
 
-        $this->info("|> found {$emails->count()}");
+        $this->info("|> fetched {$members->count()} backers");
+        $this->info("|> found {$emails->count()} emails");
 
         // Remove group from users that have it but shouldn't
         $usersQuery = User::query()->where('is_email_confirmed', true)
@@ -147,6 +157,11 @@ QUERY;
     public function info($string, $verbosity = null)
     {
         parent::info($this->prefix.' | '.$string, $verbosity);
+    }
+
+    public function warn($string, $verbosity = null)
+    {
+        parent::warn($this->prefix.' | '.$string, $verbosity);
     }
 
     protected function getUsersManaging(Builder $usersWithEmail)
