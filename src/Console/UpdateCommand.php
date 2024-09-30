@@ -64,7 +64,7 @@ class UpdateCommand extends Command
         $isLegacyApiKey = (int) $this->settings->get('fof-open-collective.use_legacy_api_key');
         $header = $isLegacyApiKey ? 'Api-Key' : 'Personal-Token';
 
-        $this->info(sprintf("Authenticating using %s", str_replace('-', ' ', $header)));
+        $this->info(sprintf('Authenticating using %s', str_replace('-', ' ', $header)));
 
         if ($isLegacyApiKey) {
             $this->warn('Using legacy API key. Please consider switching to a personal token.');
