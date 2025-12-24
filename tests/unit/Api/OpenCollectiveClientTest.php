@@ -101,28 +101,32 @@ class OpenCollectiveClientTest extends TestCase
                     $this->assertEquals('https://api.opencollective.com/graphql/v2', $url);
                     $this->assertArrayHasKey('headers', $options);
                     $this->assertArrayHasKey('Personal-Token', $options['headers']);
+
                     return new Response(200, [], $collectiveResponse);
                 }
 
                 // Second call: MONTHLY orders
                 if ($callCount === 2) {
                     $this->assertEquals(['MONTHLY'], $options['json']['variables']['frequency']);
+
                     return new Response(200, [], $monthlyResponse);
                 }
 
                 // Third call: YEARLY orders
                 if ($callCount === 3) {
                     $this->assertEquals(['YEARLY'], $options['json']['variables']['frequency']);
+
                     return new Response(200, [], $yearlyResponse);
                 }
 
                 // Fourth call: ONETIME orders
                 if ($callCount === 4) {
                     $this->assertEquals(['ONETIME'], $options['json']['variables']['frequency']);
+
                     return new Response(200, [], $onetimeResponse);
                 }
 
-                throw new \Exception('Unexpected call count: ' . $callCount);
+                throw new \Exception('Unexpected call count: '.$callCount);
             });
 
         // Test
@@ -170,6 +174,7 @@ class OpenCollectiveClientTest extends TestCase
                 if ($callCount === 1) {
                     $this->assertArrayHasKey('headers', $options);
                     $this->assertArrayHasKey('Api-Key', $options['headers']);
+
                     return new Response(200, [], $collectiveResponse);
                 }
 
