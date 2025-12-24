@@ -1,3 +1,4 @@
+import Form from 'flarum/common/components/Form';
 import app from 'flarum/admin/app';
 import ExtensionPage from 'flarum/admin/components/ExtensionPage';
 import Link from 'flarum/common/components/Link';
@@ -16,23 +17,23 @@ export default class ExtensionSettingsPage extends ExtensionPage {
     return (
       <div className="container">
         <div className="OpenCollectiveSettings">
-          <div className="Form">
+          <Form>
             {this.buildSettingComponent({
               type: 'bool',
               setting: useLegacySettingKey,
               label: app.translator.trans('fof-open-collective.admin.settings.use_legacy_api_key_label'),
               help: app.translator.trans('fof-open-collective.admin.settings.use_legacy_api_key_help'),
             })}
-
             {this.buildSettingComponent({
               type: 'password',
               setting: 'fof-open-collective.api_key',
+
               label: app.translator.trans(`fof-open-collective.admin.settings.${useLegacySetting ? 'api_key' : 'personal_token'}_label`),
+
               help: app.translator.trans(`fof-open-collective.admin.settings.${useLegacySetting ? 'api_key' : 'personal_token'}_help`, {
                 a: <Link href="https://opencollective.com/applications" target="_blank" />,
               }),
             })}
-
             {this.buildSettingComponent({
               type: 'string',
               setting: 'fof-open-collective.slug',
@@ -40,12 +41,12 @@ export default class ExtensionSettingsPage extends ExtensionPage {
               help: app.translator.trans('fof-open-collective.admin.settings.slug_help'),
               required: true,
             })}
-
             {this.buildSettingComponent({
               type: 'select',
               setting: 'fof-open-collective.group_id',
               label: app.translator.trans('fof-open-collective.admin.settings.group_label'),
               help: app.translator.trans('fof-open-collective.admin.settings.group_help'),
+
               options: app.store.all<Group>('groups').reduce<Record<string, any>>((o, g) => {
                 const id = g.id();
                 if (id) {
@@ -54,14 +55,15 @@ export default class ExtensionSettingsPage extends ExtensionPage {
 
                 return o;
               }, {}),
+
               required: true,
             })}
-
             {this.buildSettingComponent({
               type: 'select',
               setting: 'fof-open-collective.onetime_group_id',
               label: app.translator.trans('fof-open-collective.admin.settings.onetime_group_label'),
               help: app.translator.trans('fof-open-collective.admin.settings.onetime_group_help'),
+
               options: app.store.all<Group>('groups').reduce<Record<string, any>>((o, g) => {
                 const id = g.id();
                 if (id) {
@@ -72,7 +74,7 @@ export default class ExtensionSettingsPage extends ExtensionPage {
               }, {}),
             })}
             {this.submitButton()}
-          </div>
+          </Form>
         </div>
       </div>
     );
