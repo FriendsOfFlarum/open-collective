@@ -122,11 +122,11 @@ class OpenCollectiveClient
     /**
      * Fetch orders by frequency from Open Collective GraphQL API.
      *
-     * @param string $apiKey            Open Collective API key or Personal Token
-     * @param string $slug              Collective slug
-     * @param bool   $isLegacyKey       Whether using legacy API key format
-     * @param string $frequency         Frequency (MONTHLY, YEARLY, or ONETIME)
-     * @param bool   $onlyActive        Whether to fetch only active subscriptions
+     * @param string $apiKey      Open Collective API key or Personal Token
+     * @param string $slug        Collective slug
+     * @param bool   $isLegacyKey Whether using legacy API key format
+     * @param string $frequency   Frequency (MONTHLY, YEARLY, or ONETIME)
+     * @param bool   $onlyActive  Whether to fetch only active subscriptions
      *
      * @throws Exception
      *

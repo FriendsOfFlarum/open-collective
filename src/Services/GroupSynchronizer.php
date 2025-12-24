@@ -43,15 +43,15 @@ class GroupSynchronizer
     /**
      * Synchronize both recurring and one-time backer groups.
      *
-     * @param Group|null       $recurringGroup     The recurring backers group
-     * @param Group|null       $onetimeGroup       The one-time backers group (optional)
-     * @param Collection<User> $recurringUsers     Users who are recurring backers
-     * @param Collection<User> $onetimeUsers       Users who are one-time backers
-     * @param array<string>    $recurringEmails    Recurring backer emails
-     * @param array<string>    $onetimeEmails      One-time backer emails
-     * @param bool             $dryRun             If true, no changes will be made
-     * @param array            $recurringBackers   Raw recurring backer data
-     * @param array            $onetimeBackers     Raw one-time backer data
+     * @param Group|null       $recurringGroup   The recurring backers group
+     * @param Group|null       $onetimeGroup     The one-time backers group (optional)
+     * @param Collection<User> $recurringUsers   Users who are recurring backers
+     * @param Collection<User> $onetimeUsers     Users who are one-time backers
+     * @param array<string>    $recurringEmails  Recurring backer emails
+     * @param array<string>    $onetimeEmails    One-time backer emails
+     * @param bool             $dryRun           If true, no changes will be made
+     * @param array            $recurringBackers Raw recurring backer data
+     * @param array            $onetimeBackers   Raw one-time backer data
      *
      * @return array{recurring: array, onetime: array}
      */

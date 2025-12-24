@@ -37,20 +37,20 @@ class OpenCollectiveClientTest extends TestCase
                 'orders' => [
                     'nodes' => [
                         [
-                            'status'   => 'ACTIVE',
-                            'frequency' => 'MONTHLY',
-                            'tier'     => ['name' => 'Backer'],
+                            'status'      => 'ACTIVE',
+                            'frequency'   => 'MONTHLY',
+                            'tier'        => ['name' => 'Backer'],
                             'fromAccount' => [
-                                'id' => 'account-1',
+                                'id'    => 'account-1',
                                 'email' => 'monthly@example.com',
                             ],
                         ],
                         [
-                            'status'   => 'CANCELLED',
-                            'frequency' => 'MONTHLY',
-                            'tier'     => ['name' => 'Backer'],
+                            'status'      => 'CANCELLED',
+                            'frequency'   => 'MONTHLY',
+                            'tier'        => ['name' => 'Backer'],
                             'fromAccount' => [
-                                'id' => 'account-2',
+                                'id'    => 'account-2',
                                 'email' => 'cancelled@example.com',
                             ],
                         ],
@@ -74,11 +74,11 @@ class OpenCollectiveClientTest extends TestCase
                 'orders' => [
                     'nodes' => [
                         [
-                            'status'   => 'PAID',
-                            'frequency' => 'ONETIME',
-                            'tier'     => ['name' => 'Backer'],
+                            'status'      => 'PAID',
+                            'frequency'   => 'ONETIME',
+                            'tier'        => ['name' => 'Backer'],
                             'fromAccount' => [
-                                'id' => 'account-3',
+                                'id'    => 'account-3',
                                 'email' => 'onetime@example.com',
                             ],
                         ],
@@ -99,7 +99,7 @@ class OpenCollectiveClientTest extends TestCase
                         return isset($options['json']['query']) &&
                                strpos($options['json']['query'], 'collective(slug:') !== false &&
                                isset($options['headers']['Personal-Token']);
-                    })
+                    }),
                 ],
                 // Second call: MONTHLY orders
                 [
@@ -107,7 +107,7 @@ class OpenCollectiveClientTest extends TestCase
                     $this->callback(function ($options) {
                         return isset($options['json']['variables']['frequency']) &&
                                $options['json']['variables']['frequency'] === ['MONTHLY'];
-                    })
+                    }),
                 ],
                 // Third call: YEARLY orders
                 [
@@ -115,7 +115,7 @@ class OpenCollectiveClientTest extends TestCase
                     $this->callback(function ($options) {
                         return isset($options['json']['variables']['frequency']) &&
                                $options['json']['variables']['frequency'] === ['YEARLY'];
-                    })
+                    }),
                 ],
                 // Fourth call: ONETIME orders
                 [
@@ -123,7 +123,7 @@ class OpenCollectiveClientTest extends TestCase
                     $this->callback(function ($options) {
                         return isset($options['json']['variables']['frequency']) &&
                                $options['json']['variables']['frequency'] === ['ONETIME'];
-                    })
+                    }),
                 ]
             )
             ->willReturnOnConsecutiveCalls(
@@ -175,7 +175,7 @@ class OpenCollectiveClientTest extends TestCase
                     'https://api.opencollective.com/graphql/v2',
                     $this->callback(function ($options) {
                         return isset($options['headers']['Api-Key']);
-                    })
+                    }),
                 ],
                 // Subsequent calls for orders
                 [$this->anything(), $this->anything()],
@@ -250,18 +250,18 @@ class OpenCollectiveClientTest extends TestCase
                 'orders' => [
                     'nodes' => [
                         [
-                            'status'   => 'ACTIVE',
-                            'frequency' => 'MONTHLY',
+                            'status'      => 'ACTIVE',
+                            'frequency'   => 'MONTHLY',
                             'fromAccount' => [
-                                'id' => 'account-1',
+                                'id'    => 'account-1',
                                 'email' => 'same@example.com',
                             ],
                         ],
                         [
-                            'status'   => 'CANCELLED',
-                            'frequency' => 'MONTHLY',
+                            'status'      => 'CANCELLED',
+                            'frequency'   => 'MONTHLY',
                             'fromAccount' => [
-                                'id' => 'account-1',
+                                'id'    => 'account-1',
                                 'email' => 'same@example.com',
                             ],
                         ],
@@ -313,15 +313,15 @@ class OpenCollectiveClientTest extends TestCase
                 'orders' => [
                     'nodes' => [
                         [
-                            'status'   => 'PAID',
-                            'frequency' => 'ONETIME',
+                            'status'      => 'PAID',
+                            'frequency'   => 'ONETIME',
                             'fromAccount' => [
                                 'id' => 'account-1',
                             ],
                         ],
                         [
-                            'status'   => 'ERROR',
-                            'frequency' => 'ONETIME',
+                            'status'      => 'ERROR',
+                            'frequency'   => 'ONETIME',
                             'fromAccount' => [
                                 'id' => 'account-1',
                             ],
