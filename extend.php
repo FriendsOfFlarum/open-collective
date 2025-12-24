@@ -23,11 +23,11 @@ return [
 
     (new Extend\Console())
         ->command(UpdateCommand::class)
-        ->schedule(UpdateCommand::class, function (Event $event) {
-            $paths = resolve(Paths::class);
-            $event
-            ->hourly()
-            ->withoutOverlapping()
-            ->appendOutputTo($paths->storage.'/logs/fof-open-collective.log');
-        }),
+        // ->schedule(UpdateCommand::class, function (Event $event) {
+        //     $paths = resolve(Paths::class);
+        //     $event
+        //     ->hourly()
+        //     ->withoutOverlapping()
+        //     ->appendOutputTo($paths->storage.'/logs/fof-open-collective.log');
+        // }),
 ];
