@@ -25,8 +25,8 @@ class OpenCollectiveClientTest extends TestCase
         $mockResponse = json_encode([
             'data' => [
                 'collective' => [
-                    'name' => 'Test Collective',
-                    'slug' => 'test-collective',
+                    'name'    => 'Test Collective',
+                    'slug'    => 'test-collective',
                     'members' => [
                         'nodes' => [
                             [

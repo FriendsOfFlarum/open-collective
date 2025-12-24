@@ -44,9 +44,9 @@ class OpenCollectiveClient
 
         $response = $this->client->post('https://api.opencollective.com/graphql/v2', [
             'json' => [
-                'query' => "
-                    query collective(\$slug: String) {
-                      collective(slug: \$slug) {
+                'query' => '
+                    query collective($slug: String) {
+                      collective(slug: $slug) {
                         name
                         slug
                         members(role: BACKER, accountType: INDIVIDUAL) {
@@ -63,7 +63,7 @@ class OpenCollectiveClient
                         }
                       }
                     }
-                ",
+                ',
                 'variables' => ['slug' => $slug],
             ],
             'headers' => [$header => $apiKey],

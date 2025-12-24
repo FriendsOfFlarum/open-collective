@@ -22,12 +22,12 @@ return [
     new Extend\Locales(__DIR__.'/resources/locale'),
 
     (new Extend\Console())
-        ->command(UpdateCommand::class)
-        // ->schedule(UpdateCommand::class, function (Event $event) {
-        //     $paths = resolve(Paths::class);
-        //     $event
-        //     ->hourly()
-        //     ->withoutOverlapping()
-        //     ->appendOutputTo($paths->storage.'/logs/fof-open-collective.log');
-        // }),
+        ->command(UpdateCommand::class),
+    // ->schedule(UpdateCommand::class, function (Event $event) {
+    //     $paths = resolve(Paths::class);
+    //     $event
+    //     ->hourly()
+    //     ->withoutOverlapping()
+    //     ->appendOutputTo($paths->storage.'/logs/fof-open-collective.log');
+    // }),
 ];
