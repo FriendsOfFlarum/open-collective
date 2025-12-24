@@ -36,51 +36,20 @@ class UpdateCommand extends Command
      */
     protected $description = 'Update groups of Open Collective supporters.';
 
-    protected $prefix;
-
-    /**
-     * @var SettingsRepositoryInterface
-     */
-    private $settings;
-
-    /**
-     * @var OpenCollectiveClient
-     */
-    private $client;
-
-    /**
-     * @var BackerMatcher
-     */
-    private $matcher;
-
-    /**
-     * @var GroupSynchronizer
-     */
-    private $synchronizer;
-
-    /**
-     * @var LoggerInterface
-     */
-    private $logger;
+    protected string $prefix;
 
     public function __construct(
-        SettingsRepositoryInterface $settings,
-        OpenCollectiveClient $client,
-        BackerMatcher $matcher,
-        GroupSynchronizer $synchronizer,
-        LoggerInterface $logger
+        private SettingsRepositoryInterface $settings,
+        private OpenCollectiveClient $client,
+        private BackerMatcher $matcher,
+        private GroupSynchronizer $synchronizer,
+        private LoggerInterface $logger
     ) {
         parent::__construct();
-
-        $this->settings = $settings;
-        $this->client = $client;
-        $this->matcher = $matcher;
-        $this->synchronizer = $synchronizer;
-        $this->logger = $logger;
         $this->prefix = Carbon::now()->format('M d, Y @ h:m A');
     }
 
-    public function handle()
+    public function handle(): int
     {
         $this->line('');
 
@@ -393,14 +362,20 @@ class UpdateCommand extends Command
         }
     }
 
-    protected function outputUsers($users, $prefix)
+    /**
+     * @param \Illuminate\Support\Collection<int, \Flarum\User\User> $users
+     */
+    protected function outputUsers($users, string $prefix): void
     {
         foreach ($users as $user) {
             $this->outputUser($user, $prefix);
         }
     }
 
-    protected function outputUser($user, $prefix)
+    /**
+     * @param \Flarum\User\User $user
+     */
+    protected function outputUser($user, string $prefix): void
     {
         $this->info("|> $prefix #{$user->id} {$user->username}");
     }

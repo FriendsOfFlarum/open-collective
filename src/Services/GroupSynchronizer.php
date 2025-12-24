@@ -21,23 +21,11 @@ use Illuminate\Support\Collection;
 
 class GroupSynchronizer
 {
-    /**
-     * @var SettingsRepositoryInterface
-     */
-    private $settings;
-
-    /**
-     * @var Dispatcher
-     */
-    private $events;
-
     private const MANAGED_USERS_KEY = 'fof-open-collective.users';
     private const MANAGED_ONETIME_USERS_KEY = 'fof-open-collective.onetime_users';
 
-    public function __construct(SettingsRepositoryInterface $settings, Dispatcher $events)
+    public function __construct(private SettingsRepositoryInterface $settings, private Dispatcher $events)
     {
-        $this->settings = $settings;
-        $this->events = $events;
     }
 
     /**
@@ -349,11 +337,11 @@ class GroupSynchronizer
     /**
      * Get the list of users currently managed by this extension.
      *
-     * @return Collection<int>
+     * @return Collection<int, int>
      */
     public function getManagedUsers(): Collection
     {
-        return collect(json_decode($this->settings->get(self::MANAGED_USERS_KEY, '[]')));
+        return collect((array) json_decode($this->settings->get(self::MANAGED_USERS_KEY, '[]')));
     }
 
     /**
@@ -369,11 +357,11 @@ class GroupSynchronizer
     /**
      * Get the list of one-time users currently managed by this extension.
      *
-     * @return Collection<int>
+     * @return Collection<int, int>
      */
     public function getManagedOnetimeUsers(): Collection
     {
-        return collect(json_decode($this->settings->get(self::MANAGED_ONETIME_USERS_KEY, '[]')));
+        return collect((array) json_decode($this->settings->get(self::MANAGED_ONETIME_USERS_KEY, '[]')));
     }
 
     /**

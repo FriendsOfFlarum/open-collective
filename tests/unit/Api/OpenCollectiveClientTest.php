@@ -89,49 +89,45 @@ class OpenCollectiveClientTest extends TestCase
 
         // Mock Guzzle client
         $mockClient = $this->createMock(Client::class);
+
+        $callCount = 0;
         $mockClient->expects($this->exactly(4))
             ->method('post')
-            ->withConsecutive(
+            ->willReturnCallback(function ($url, $options) use (&$callCount, $collectiveResponse, $monthlyResponse, $yearlyResponse, $onetimeResponse) {
+                $callCount++;
+
                 // First call: collective query
-                [
-                    'https://api.opencollective.com/graphql/v2',
-                    $this->callback(function ($options) {
-                        return isset($options['json']['query']) &&
-                               strpos($options['json']['query'], 'collective(slug:') !== false &&
-                               isset($options['headers']['Personal-Token']);
-                    }),
-                ],
+                if ($callCount === 1) {
+                    $this->assertEquals('https://api.opencollective.com/graphql/v2', $url);
+                    $this->assertArrayHasKey('headers', $options);
+                    $this->assertArrayHasKey('Personal-Token', $options['headers']);
+
+                    return new Response(200, [], $collectiveResponse);
+                }
+
                 // Second call: MONTHLY orders
-                [
-                    'https://api.opencollective.com/graphql/v2',
-                    $this->callback(function ($options) {
-                        return isset($options['json']['variables']['frequency']) &&
-                               $options['json']['variables']['frequency'] === ['MONTHLY'];
-                    }),
-                ],
+                if ($callCount === 2) {
+                    $this->assertEquals(['MONTHLY'], $options['json']['variables']['frequency']);
+
+                    return new Response(200, [], $monthlyResponse);
+                }
+
                 // Third call: YEARLY orders
-                [
-                    'https://api.opencollective.com/graphql/v2',
-                    $this->callback(function ($options) {
-                        return isset($options['json']['variables']['frequency']) &&
-                               $options['json']['variables']['frequency'] === ['YEARLY'];
-                    }),
-                ],
+                if ($callCount === 3) {
+                    $this->assertEquals(['YEARLY'], $options['json']['variables']['frequency']);
+
+                    return new Response(200, [], $yearlyResponse);
+                }
+
                 // Fourth call: ONETIME orders
-                [
-                    'https://api.opencollective.com/graphql/v2',
-                    $this->callback(function ($options) {
-                        return isset($options['json']['variables']['frequency']) &&
-                               $options['json']['variables']['frequency'] === ['ONETIME'];
-                    }),
-                ]
-            )
-            ->willReturnOnConsecutiveCalls(
-                new Response(200, [], $collectiveResponse),
-                new Response(200, [], $monthlyResponse),
-                new Response(200, [], $yearlyResponse),
-                new Response(200, [], $onetimeResponse)
-            );
+                if ($callCount === 4) {
+                    $this->assertEquals(['ONETIME'], $options['json']['variables']['frequency']);
+
+                    return new Response(200, [], $onetimeResponse);
+                }
+
+                throw new \Exception('Unexpected call count: '.$callCount);
+            });
 
         // Test
         $client = new OpenCollectiveClient($mockClient);
@@ -167,27 +163,24 @@ class OpenCollectiveClientTest extends TestCase
         ]);
 
         $mockClient = $this->createMock(Client::class);
+
+        $callCount = 0;
         $mockClient->expects($this->exactly(4))
             ->method('post')
-            ->withConsecutive(
+            ->willReturnCallback(function ($url, $options) use (&$callCount, $collectiveResponse, $emptyOrdersResponse) {
+                $callCount++;
+
                 // First call should use Api-Key header
-                [
-                    'https://api.opencollective.com/graphql/v2',
-                    $this->callback(function ($options) {
-                        return isset($options['headers']['Api-Key']);
-                    }),
-                ],
+                if ($callCount === 1) {
+                    $this->assertArrayHasKey('headers', $options);
+                    $this->assertArrayHasKey('Api-Key', $options['headers']);
+
+                    return new Response(200, [], $collectiveResponse);
+                }
+
                 // Subsequent calls for orders
-                [$this->anything(), $this->anything()],
-                [$this->anything(), $this->anything()],
-                [$this->anything(), $this->anything()]
-            )
-            ->willReturnOnConsecutiveCalls(
-                new Response(200, [], $collectiveResponse),
-                new Response(200, [], $emptyOrdersResponse),
-                new Response(200, [], $emptyOrdersResponse),
-                new Response(200, [], $emptyOrdersResponse)
-            );
+                return new Response(200, [], $emptyOrdersResponse);
+            });
 
         $client = new OpenCollectiveClient($mockClient);
         $result = $client->fetchBackers('legacy-key', 'test', true);

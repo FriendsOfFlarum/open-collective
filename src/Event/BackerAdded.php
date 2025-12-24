@@ -19,26 +19,9 @@ use Flarum\User\User;
 class BackerAdded
 {
     /**
-     * The Flarum user who was added.
-     *
-     * @var User
-     */
-    public $user;
-
-    /**
-     * The Open Collective backer data from the API.
-     *
-     * @var object|null
-     */
-    public $backerData;
-
-    /**
-     * @param User        $user       The Flarum user who was added as a backer
      * @param object|null $backerData The Open Collective backer data (contains email, etc.)
      */
-    public function __construct(User $user, ?object $backerData = null)
+    public function __construct(public User $user, public ?object $backerData = null)
     {
-        $this->user = $user;
-        $this->backerData = $backerData;
     }
 }

@@ -1,6 +1,7 @@
 import app from 'flarum/admin/app';
-import ExtensionSettingsPage from './components/ExtensionSettingsPage';
+
+export { default as extend } from './extend';
 
 app.initializers.add('fof/open-collective', () => {
-  app.extensionData.for('fof-open-collective').registerPage(ExtensionSettingsPage);
+  //
 });
