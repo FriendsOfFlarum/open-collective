@@ -8,6 +8,8 @@ A [Flarum](http://flarum.org) extension that automatically synchronizes your Ope
 
 - 🔄 **Automatic Synchronization**: Hourly checks for new and removed backers
 - 👥 **Smart User Matching**: Matches backers via email addresses
+- 🎯 **Dual Group Support**: Separate groups for recurring and one-time backers
+- 🔄 **Status-Based Categorization**: Automatically moves past recurring backers to one-time group
 - 🔒 **Safe Group Management**: Only manages users it adds, won't interfere with manually assigned groups
 - 📝 **Detailed Logging**: Tracks all changes in dedicated log files
 - 🧪 **Dry-Run Mode**: Preview changes before applying them
@@ -17,10 +19,14 @@ A [Flarum](http://flarum.org) extension that automatically synchronizes your Ope
 
 This extension connects your Open Collective account with your Flarum forum by:
 
-1. **Fetching Backers**: Queries Open Collective's GraphQL API to retrieve your current backers
-2. **Matching Users**: Identifies Flarum users by matching email addresses from Open Collective backers with Flarum user emails
-3. **Managing Groups**: Automatically adds backers to a designated Flarum group and removes users who are no longer backers
-4. **Tracking Changes**: Logs all additions and removals to help you monitor the process
+1. **Fetching Backers**: Queries Open Collective's GraphQL API to retrieve your current backers (active recurring, cancelled recurring, and one-time contributors)
+2. **Categorizing Backers**: Separates backers into two groups:
+   - **Recurring backers**: Users with active monthly or yearly subscriptions
+   - **One-time backers**: Users who made one-time contributions or whose recurring subscription has ended
+3. **Matching Users**: Identifies Flarum users by matching email addresses from Open Collective backers with Flarum user emails
+4. **Managing Groups**: Automatically adds backers to designated Flarum groups and removes users who are no longer backers
+5. **Handling Transitions**: When a recurring backer's subscription ends, they are automatically moved to the one-time backers group
+6. **Tracking Changes**: Logs all additions, removals, and transitions to help you monitor the process
 
 ## Installation
 
@@ -60,7 +66,10 @@ In your Flarum admin panel, navigate to the Open Collective extension settings:
 
 - **Personal Token** (or **API Key** if using legacy): Paste your Open Collective token
 - **Collective Slug**: Enter your collective slug (e.g., if your collective is at `opencollective.com/your-collective`, enter `your-collective`)
-- **Group**: Select which Flarum group to assign to backers
+- **Recurring Backers Group**: Select which Flarum group to assign to recurring backers (required)
+- **One-Time Backers Group**: Optionally select a group for one-time backers and past recurring backers (optional)
+
+**Note**: If you only configure the recurring backers group, all backers (both recurring and one-time) will be added to that single group. If you configure both groups, the extension will automatically categorize backers based on their subscription status.
 
 Save the settings, and the extension will start syncing on the next scheduled run.
 
@@ -93,11 +102,12 @@ php flarum fof:open-collective:update -v
 ```
 
 Verbose mode shows:
-- Configuration details (API type, collective slug, target group)
-- All backers from Open Collective with their emails
-- Matched Flarum users with match method (email)
+- Configuration details (API type, collective slug, target groups)
+- Total number of backers and breakdown by type (recurring vs one-time)
+- All backers from Open Collective with their emails and type
+- Matched Flarum users for each group
 - Unmatched backers who couldn't be linked to Flarum accounts
-- Summary of users staying, being added, and being removed
+- Summary of users staying, being added, removed, and moved between groups
 
 Combine both options for detailed preview:
 
@@ -130,10 +140,14 @@ The extension matches Open Collective backers to Flarum users by comparing email
 
 ## Important Notes
 
-- The extension only removes the group from users it previously added. It won't affect users who were manually added to the group.
-- Users must have the same email address as their Open Collective account.
-- The Open Collective API has rate limits. The extension checks once per hour to stay well within these limits.
-- Only individual backers are synchronized (not organizational backers).
+- **Safe Group Management**: The extension only removes the group from users it previously added. It won't affect users who were manually added to the group.
+- **Email Matching**: Users must have the same email address as their Open Collective account.
+- **Backer Categorization**:
+  - Users with active monthly or yearly subscriptions are placed in the recurring backers group
+  - Users who made one-time contributions or whose subscription has ended are placed in the one-time backers group
+  - When a recurring subscription ends, the user is automatically moved to the one-time group (if configured)
+- **Rate Limits**: The Open Collective API has rate limits. The extension checks once per hour to stay well within these limits.
+- **Email Privacy**: Some backers may have private email addresses on Open Collective. These backers cannot be matched to Flarum users automatically.
 
 ## For Developers: Event System
 

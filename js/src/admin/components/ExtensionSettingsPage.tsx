@@ -56,6 +56,21 @@ export default class ExtensionSettingsPage extends ExtensionPage {
               }, {}),
               required: true,
             })}
+
+            {this.buildSettingComponent({
+              type: 'select',
+              setting: 'fof-open-collective.onetime_group_id',
+              label: app.translator.trans('fof-open-collective.admin.settings.onetime_group_label'),
+              help: app.translator.trans('fof-open-collective.admin.settings.onetime_group_help'),
+              options: app.store.all<Group>('groups').reduce<Record<string, any>>((o, g) => {
+                const id = g.id();
+                if (id) {
+                  o[id] = g.nameSingular();
+                }
+
+                return o;
+              }, {}),
+            })}
             {this.submitButton()}
           </div>
         </div>
