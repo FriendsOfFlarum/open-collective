@@ -16,7 +16,10 @@ use PHPUnit\Framework\TestCase;
 
 class BackerMatcherTest extends TestCase
 {
-    private BackerMatcher $matcher;
+    /**
+     * @var BackerMatcher
+     */
+    private $matcher;
 
     protected function setUp(): void
     {
