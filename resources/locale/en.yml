@@ -17,5 +17,8 @@ fof-open-collective:
       slug_label: Collective Slug
       slug_help: Enter your Open Collective collective slug (the part after opencollective.com/ in your collective URL).
 
-      group_label: Group to Assign
-      group_help: Select which Flarum user group backers should be added to. Users will be automatically added when they become backers and removed when they stop backing.
+      group_label: Recurring Backers Group
+      group_help: Select which Flarum user group recurring backers should be added to. Users will be automatically added when they become recurring backers and moved to the one-time group (if configured) when their subscription ends.
+
+      onetime_group_label: One-Time Backers Group (Optional)
+      onetime_group_help: Select which Flarum user group one-time backers should be added to. If not set, one-time backers will not be managed. When a recurring backer cancels their subscription, they will be moved to this group.

@@ -95,18 +95,25 @@ class UpdateCommand extends Command
             // Load and validate settings
             $apiKey = $this->settings->get('fof-open-collective.api_key');
             $slug = strtolower($this->settings->get('fof-open-collective.slug'));
-            $groupId = $this->settings->get('fof-open-collective.group_id');
+            $recurringGroupId = $this->settings->get('fof-open-collective.group_id');
+            $onetimeGroupId = $this->settings->get('fof-open-collective.onetime_group_id');
             $isLegacyApiKey = (int) $this->settings->get('fof-open-collective.use_legacy_api_key');
 
-            $this->validateSettings($apiKey, $slug, $groupId);
+            $this->validateSettings($apiKey, $slug, $recurringGroupId);
 
-            $group = Group::find((int) $groupId);
+            $recurringGroup = Group::find((int) $recurringGroupId);
+            $onetimeGroup = $onetimeGroupId ? Group::find((int) $onetimeGroupId) : null;
 
             if ($verbose) {
                 $this->info('Configuration:');
                 $this->info('|> API Type: '.($isLegacyApiKey ? 'Legacy API Key' : 'Personal Token'));
                 $this->info('|> Collective: '.$slug);
-                $this->info("|> Target group: {$group->name_singular} (ID: {$group->id})");
+                $this->info("|> Recurring backers group: {$recurringGroup->name_singular} (ID: {$recurringGroup->id})");
+                if ($onetimeGroup) {
+                    $this->info("|> One-time backers group: {$onetimeGroup->name_singular} (ID: {$onetimeGroup->id})");
+                } else {
+                    $this->info('|> One-time backers group: Not configured');
+                }
                 $this->line('');
             }
 
@@ -123,42 +130,65 @@ class UpdateCommand extends Command
 
             $this->info('|> '.count($backers)." backers of {$collectiveName}");
 
+            // Categorize backers by type
+            $categorized = $this->matcher->categorizeBackers($backers);
+            $recurringBackers = $categorized['recurring'];
+            $onetimeBackers = $categorized['onetime'];
+
+            $this->info('|> '.count($recurringBackers).' recurring backers');
+            $this->info('|> '.count($onetimeBackers).' one-time backers');
+
             if ($verbose && count($backers) > 0) {
                 $this->line('');
                 $this->info('Backer details from Open Collective:');
                 foreach ($backers as $backer) {
                     $backerData = $backer->account ?? $backer;
                     $email = $backerData->email ?? 'no email';
-                    $this->info("|> Email: $email");
+                    $frequency = $backer->tier->frequency ?? 'ONETIME';
+                    $type = ($frequency === 'MONTHLY' || $frequency === 'YEARLY') ? 'recurring' : 'one-time';
+                    $this->info("|> Email: $email [$type]");
                 }
                 $this->line('');
             }
 
             // Match backers to Flarum users
-            $backerUsers = $this->matcher->matchBackersToUsers($backers);
-            $registeredCount = $backerUsers->count();
-            $unregisteredCount = count($backers) - $registeredCount;
+            $recurringUsers = $this->matcher->matchBackersOfTypeToUsers($recurringBackers);
+            $onetimeUsers = $this->matcher->matchBackersOfTypeToUsers($onetimeBackers);
 
-            $this->info("|> -> {$registeredCount} registered, {$unregisteredCount} not registered");
+            $recurringRegisteredCount = $recurringUsers->count();
+            $onetimeRegisteredCount = $onetimeUsers->count();
+            $totalRegistered = $recurringRegisteredCount + $onetimeRegisteredCount;
+            $totalUnregistered = count($backers) - $totalRegistered;
+
+            $this->info("|> -> {$recurringRegisteredCount} recurring registered, {$onetimeRegisteredCount} one-time registered");
+            $this->info("|> -> {$totalUnregistered} not registered");
 
             if ($verbose) {
-                if ($registeredCount > 0) {
+                if ($totalRegistered > 0) {
                     $this->line('');
                     $this->info('Matched Flarum users:');
 
-                    // Get backer data for matching
-                    $backerEmails = $this->matcher->getBackerEmails($backers)->all();
+                    // Show recurring users
+                    if ($recurringRegisteredCount > 0) {
+                        $this->info('  Recurring backers:');
+                        foreach ($recurringUsers as $user) {
+                            $this->info("|>   #{$user->id} {$user->username} ({$user->email})");
+                        }
+                    }
 
-                    foreach ($backerUsers as $user) {
-                        $matchInfo = in_array($user->email, $backerEmails) ? ' [matched by: email]' : '';
-                        $this->info("|> #{$user->id} {$user->username} ({$user->email}){$matchInfo}");
+                    // Show one-time users
+                    if ($onetimeRegisteredCount > 0) {
+                        $this->info('  One-time backers:');
+                        foreach ($onetimeUsers as $user) {
+                            $this->info("|>   #{$user->id} {$user->username} ({$user->email})");
+                        }
                     }
                     $this->line('');
                 }
 
-                if ($unregisteredCount > 0) {
+                if ($totalUnregistered > 0) {
                     $this->info('Unmatched backers (not registered on Flarum):');
-                    $matchedEmails = $backerUsers->pluck('email')->all();
+                    $matchedEmails = $recurringUsers->pluck('email')->merge($onetimeUsers->pluck('email'))->all();
 
                     foreach ($backers as $backer) {
                         $backerData = $backer->account ?? $backer;
@@ -167,7 +197,9 @@ class UpdateCommand extends Command
                         if (!$email || !in_array($email, $matchedEmails)) {
                             $emailDisplay = $email ?: 'no email provided';
                             $reason = !$email ? ' (no email to match)' : ' (no matching Flarum user found)';
-                            $this->info("|> Email: $emailDisplay{$reason}");
+                            $frequency = $backer->tier->frequency ?? 'ONETIME';
+                            $type = ($frequency === 'MONTHLY' || $frequency === 'YEARLY') ? 'recurring' : 'one-time';
+                            $this->info("|> Email: $emailDisplay [$type]{$reason}");
                         }
                     }
                     $this->line('');
@@ -177,48 +209,111 @@ class UpdateCommand extends Command
             // Synchronize group memberships
             $this->info($dryRun ? 'Calculating group changes...' : 'Applying group changes...');
 
-            $changes = $this->synchronizer->synchronize(
-                $group,
-                $backerUsers,
-                $this->matcher->getBackerEmails($backers)->all(),
+            $recurringEmails = $this->matcher->getBackerEmails($recurringBackers)->all();
+            $onetimeEmails = $this->matcher->getBackerEmails($onetimeBackers)->all();
+
+            $changes = $this->synchronizer->synchronizeBothGroups(
+                $recurringGroup,
+                $onetimeGroup,
+                $recurringUsers,
+                $onetimeUsers,
+                $recurringEmails,
+                $onetimeEmails,
                 $dryRun,
-                $backers
+                $recurringBackers,
+                $onetimeBackers
             );
 
-            // Calculate users staying in the group (active backers already in group)
-            $usersStaying = $backerUsers->filter(function ($user) use ($group) {
-                return $user->groups()->find($group->id) !== null;
+            $recurringChanges = $changes['recurring'];
+            $onetimeChanges = $changes['onetime'];
+
+            // Calculate users staying in groups
+            $recurringStaying = $recurringUsers->filter(function ($user) use ($recurringGroup) {
+                return $user->groups()->find($recurringGroup->id) !== null;
             });
+
+            $onetimeStaying = collect();
+            if ($onetimeGroup) {
+                $onetimeStaying = $onetimeUsers->filter(function ($user) use ($onetimeGroup) {
+                    return $user->groups()->find($onetimeGroup->id) !== null;
+                });
+            }
 
             if ($verbose) {
                 $this->line('');
                 $this->info('Summary:');
-                $this->info("|> Users staying in group: {$usersStaying->count()}");
-                $this->info("|> Users to remove: {$changes['removed']->count()}");
-                $this->info("|> Users to add: {$changes['added']->count()}");
+                $this->info("RECURRING GROUP ({$recurringGroup->name_singular}):");
+                $this->info("|> Users staying in group: {$recurringStaying->count()}");
+                $this->info("|> Users to remove: {$recurringChanges['removed']->count()}");
+                $this->info("|> Users to add: {$recurringChanges['added']->count()}");
+                if ($onetimeGroup && $recurringChanges['moved_to_onetime']->count() > 0) {
+                    $this->info("|> Users moved to one-time group: {$recurringChanges['moved_to_onetime']->count()}");
+                }
+
+                if ($onetimeGroup) {
+                    $this->line('');
+                    $this->info("ONE-TIME GROUP ({$onetimeGroup->name_singular}):");
+                    $this->info("|> Users staying in group: {$onetimeStaying->count()}");
+                    $this->info("|> Users to remove: {$onetimeChanges['removed']->count()}");
+                    $this->info("|> Users to add: {$onetimeChanges['added']->count()}");
+                }
                 $this->line('');
             }
 
-            if ($verbose && $usersStaying->count() > 0) {
-                $this->info('Users staying in group (active backers):');
-                $this->outputUsers($usersStaying, '=');
+            // Output recurring group changes
+            if ($verbose && $recurringStaying->count() > 0) {
+                $this->info('Users staying in recurring group:');
+                $this->outputUsers($recurringStaying, '=');
             }
 
-            if ($changes['removed']->count() > 0) {
+            if ($recurringChanges['removed']->count() > 0) {
                 if ($verbose) {
-                    $this->info('Removing users from group:');
+                    $this->info('Removing users from recurring group:');
                 }
-                $this->outputUsers($changes['removed'], '-');
+                $this->outputUsers($recurringChanges['removed'], '-');
             }
 
-            if ($changes['added']->count() > 0) {
+            if ($recurringChanges['moved_to_onetime']->count() > 0) {
+                $this->info('Moving users from recurring to one-time group:');
+                $this->outputUsers($recurringChanges['moved_to_onetime'], '→');
+            }
+
+            if ($recurringChanges['added']->count() > 0) {
                 if ($verbose) {
-                    $this->info('Adding users to group:');
+                    $this->info('Adding users to recurring group:');
                 }
-                $this->outputUsers($changes['added'], '+');
+                $this->outputUsers($recurringChanges['added'], '+');
             }
 
-            if ($changes['removed']->count() === 0 && $changes['added']->count() === 0) {
+            // Output one-time group changes
+            if ($onetimeGroup) {
+                if ($verbose && $onetimeStaying->count() > 0) {
+                    $this->info('Users staying in one-time group:');
+                    $this->outputUsers($onetimeStaying, '=');
+                }
+
+                if ($onetimeChanges['removed']->count() > 0) {
+                    if ($verbose) {
+                        $this->info('Removing users from one-time group:');
+                    }
+                    $this->outputUsers($onetimeChanges['removed'], '-');
+                }
+
+                if ($onetimeChanges['added']->count() > 0) {
+                    if ($verbose) {
+                        $this->info('Adding users to one-time group:');
+                    }
+                    $this->outputUsers($onetimeChanges['added'], '+');
+                }
+            }
+
+            $totalChanges = $recurringChanges['removed']->count() + $recurringChanges['added']->count() +
+                            $recurringChanges['moved_to_onetime']->count();
+            if ($onetimeGroup) {
+                $totalChanges += $onetimeChanges['removed']->count() + $onetimeChanges['added']->count();
+            }
+
+            if ($totalChanges === 0) {
                 $this->info('No changes needed.');
             }
 
