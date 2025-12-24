@@ -36,7 +36,7 @@ class UpdateCommand extends Command
      */
     protected $description = 'Update groups of Open Collective supporters.';
 
-    protected $prefix;
+    protected string $prefix;
 
     public function __construct(
         private SettingsRepositoryInterface $settings,
@@ -49,7 +49,7 @@ class UpdateCommand extends Command
         $this->prefix = Carbon::now()->format('M d, Y @ h:m A');
     }
 
-    public function handle()
+    public function handle(): int
     {
         $this->line('');
 
@@ -362,14 +362,20 @@ class UpdateCommand extends Command
         }
     }
 
-    protected function outputUsers($users, $prefix)
+    /**
+     * @param \Illuminate\Support\Collection<int, \Flarum\User\User> $users
+     */
+    protected function outputUsers($users, string $prefix): void
     {
         foreach ($users as $user) {
             $this->outputUser($user, $prefix);
         }
     }
 
-    protected function outputUser($user, $prefix)
+    /**
+     * @param \Flarum\User\User $user
+     */
+    protected function outputUser($user, string $prefix): void
     {
         $this->info("|> $prefix #{$user->id} {$user->username}");
     }

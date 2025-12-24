@@ -191,7 +191,7 @@ class OpenCollectiveClient
 
         // Filter by status - only return ACTIVE orders for recurring subscriptions
         // The onlyActiveSubscriptions parameter doesn't seem to filter out CANCELLED orders
-        $orders = collect($json->data->orders->nodes);
+        $orders = collect((array) $json->data->orders->nodes);
 
         if ($onlyActive) {
             $orders = $orders->filter(function ($order) {
