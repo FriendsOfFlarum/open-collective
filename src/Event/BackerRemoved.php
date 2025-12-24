@@ -18,18 +18,7 @@ use Flarum\User\User;
  */
 class BackerRemoved
 {
-    /**
-     * The Flarum user who was removed.
-     *
-     * @var User
-     */
-    public $user;
-
-    /**
-     * @param User $user The Flarum user who was removed from backers
-     */
-    public function __construct(User $user)
+    public function __construct(public User $user)
     {
-        $this->user = $user;
     }
 }
