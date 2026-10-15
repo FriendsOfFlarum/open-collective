@@ -140,10 +140,10 @@ class BackerSynchronizer
 
             if ($statusChanged && !$baseline) {
                 $event = match (true) {
-                    $current === BackerStatus::Recurring                                       => RecurringBackingStarted::class,
+                    $current === BackerStatus::Recurring                                        => RecurringBackingStarted::class,
                     $previous === BackerStatus::Recurring && $current === BackerStatus::OneTime => RecurringBackingStopped::class,
-                    $current === BackerStatus::OneTime                                         => OneTimeBackingStarted::class,
-                    default                                                                    => BackingEnded::class,
+                    $current === BackerStatus::OneTime                                          => OneTimeBackingStarted::class,
+                    default                                                                     => BackingEnded::class,
                 };
 
                 $this->events->dispatch(new $event($user, $previous, $current, $account, $oldGroupIds, $newGroupIds));
