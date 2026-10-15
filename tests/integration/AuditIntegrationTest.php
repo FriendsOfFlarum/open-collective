@@ -109,6 +109,19 @@ class AuditIntegrationTest extends SyncTestCase
     }
 
     #[Test]
+    public function an_adopted_membership_is_logged(): void
+    {
+        $this->members([[4, self::RECURRING_GROUP]]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'carol@example.com')]);
+
+        $this->sync();
+
+        $adopted = array_values(array_filter($this->auditEntries(), fn ($entry) => $entry['action'] === 'fof_open_collective.membership_adopted'));
+        $this->assertCount(1, $adopted);
+        $this->assertEquals(['user_id' => 4, 'new_group_ids' => [self::RECURRING_GROUP]], $adopted[0]['payload']);
+    }
+
+    #[Test]
     public function a_dry_run_logs_nothing(): void
     {
         FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);

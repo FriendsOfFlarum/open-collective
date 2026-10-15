@@ -19,16 +19,21 @@ use FoF\OpenCollective\Console\UpdateCommand;
 use FoF\OpenCollective\Data\OpenCollectiveBacker;
 use FoF\OpenCollective\Event\AbstractBackerStatusChanged;
 use FoF\OpenCollective\Event\BackerGroupsChanged;
+use FoF\OpenCollective\Event\BackerMembershipAdopted;
 use FoF\OpenCollective\Event\BackingEnded;
 use FoF\OpenCollective\Event\OneTimeBackingStarted;
 use FoF\OpenCollective\Event\RecurringBackingStarted;
 use FoF\OpenCollective\Event\RecurringBackingStopped;
+use FoF\OpenCollective\Providers\SupporterGroupsServiceProvider;
 use Illuminate\Console\Scheduling\Event;
 
 return [
     (new Extend\Frontend('admin'))
         ->js(__DIR__.'/js/dist/admin.js'),
     new Extend\Locales(__DIR__.'/resources/locale'),
+
+    (new Extend\ServiceProvider())
+        ->register(SupporterGroupsServiceProvider::class),
 
     (new Extend\Routes('api'))
         ->post('/fof/open-collective/test-connection', 'fof-open-collective.test-connection', TestConnectionController::class),
@@ -63,6 +68,10 @@ return [
                         'user_id'       => $event->user->id,
                         'old_group_ids' => $event->oldGroupIds,
                         'new_group_ids' => $event->newGroupIds,
+                    ])
+                    ->listen(BackerMembershipAdopted::class, 'fof_open_collective.membership_adopted', fn (BackerMembershipAdopted $event) => [
+                        'user_id'       => $event->user->id,
+                        'new_group_ids' => $event->groupIds,
                     ]),
             ];
         })

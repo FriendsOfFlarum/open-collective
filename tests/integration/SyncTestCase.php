@@ -19,8 +19,10 @@ use Flarum\User\User;
 use FoF\OpenCollective\Backer;
 use FoF\OpenCollective\BackerStatus;
 use FoF\OpenCollective\Event\BackerGroupsChanged;
+use FoF\OpenCollective\Event\BackerMembershipAdopted;
 use FoF\OpenCollective\Event\BackerStatusChanged;
 use FoF\OpenCollective\Tests\fixtures\FakeOpenCollectiveProvider;
+use FoF\OpenCollective\Tests\fixtures\FakeOtherSupporterSource;
 use Illuminate\Contracts\Events\Dispatcher;
 
 /**
@@ -46,8 +48,9 @@ abstract class SyncTestCase extends ConsoleTestCase
         parent::setUp();
 
         $this->extension(...$this->extensions());
-        $this->extend((new Extend\ServiceProvider())->register(FakeOpenCollectiveProvider::class));
+        $this->extend((new Extend\ServiceProvider())->register(FakeOpenCollectiveProvider::class)->register(FakeOtherSupporterSource::class));
         FakeOpenCollectiveProvider::reset();
+        FakeOtherSupporterSource::$wants = [];
 
         $this->setting('fof-open-collective.api_key', 'token');
         $this->setting('fof-open-collective.slug', 'test');
@@ -103,7 +106,7 @@ abstract class SyncTestCase extends ConsoleTestCase
     protected function sync(array $options = []): string
     {
         $this->app()->getContainer()->make(Dispatcher::class)->listen(
-            [BackerStatusChanged::class, BackerGroupsChanged::class],
+            [BackerStatusChanged::class, BackerGroupsChanged::class, BackerMembershipAdopted::class],
             fn (object $event) => $this->events[] = $event
         );
 
