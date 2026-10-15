@@ -14,9 +14,11 @@ namespace FoF\OpenCollective\Tests\integration;
 use FoF\OpenCollective\Backer;
 use FoF\OpenCollective\BackerStatus;
 use FoF\OpenCollective\Event\RecurringBackingStopped;
+use FoF\OpenCollective\Services\BackerGroupClaims;
 use FoF\OpenCollective\Services\BackerSynchronizer;
 use FoF\OpenCollective\Services\SyncStatus;
 use FoF\OpenCollective\Tests\fixtures\FakeOpenCollectiveProvider;
+use FoF\OpenCollective\Tests\fixtures\FakeOtherSupporterSource;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\Attributes\Test;
 
@@ -120,8 +122,9 @@ class UpdateCommandTest extends SyncTestCase
     }
 
     #[Test]
-    public function a_member_added_by_hand_gets_status_events_but_is_never_removed(): void
+    public function a_hand_added_supporter_who_stops_keeps_supporter_and_is_not_also_made_contributor(): void
     {
+        // Known as recurring from before adoption existed, so the membership is not owned.
         $this->known(4, BackerStatus::Recurring, []);
         $this->members([[4, self::RECURRING_GROUP]]);
         FakeOpenCollectiveProvider::backers(monthly: [$this->order('CANCELLED', 'MONTHLY', 'carol@example.com')]);
@@ -129,8 +132,160 @@ class UpdateCommandTest extends SyncTestCase
         $this->sync();
 
         $this->assertTrue($this->inGroup(4, self::RECURRING_GROUP));
-        $this->assertTrue($this->inGroup(4, self::ONETIME_GROUP));
+        $this->assertFalse($this->inGroup(4, self::ONETIME_GROUP));
         $this->assertSame(['RecurringBackingStopped:4'], $this->eventLog());
+    }
+
+    #[Test]
+    public function a_backer_added_by_hand_is_adopted(): void
+    {
+        $this->members([[4, self::RECURRING_GROUP]]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'carol@example.com')]);
+
+        $output = $this->sync();
+
+        $this->assertStringContainsString('#4 carol: none → recurring, took over Supporter', $output);
+        $this->assertSame([self::RECURRING_GROUP], Backer::find(4)->managedGroupIds());
+        $this->assertSame(['RecurringBackingStarted:4', 'BackerMembershipAdopted:4'], $this->eventLog());
+        $this->assertSame([self::RECURRING_GROUP], $this->events[1]->groupIds);
+    }
+
+    #[Test]
+    public function an_adopted_membership_is_moved_when_the_backing_stops(): void
+    {
+        $this->members([[4, self::RECURRING_GROUP]]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'carol@example.com')]);
+        $this->sync();
+
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('CANCELLED', 'MONTHLY', 'carol@example.com')]);
+        $this->runCommand(['command' => 'fof:open-collective:update']);
+
+        $this->assertFalse($this->inGroup(4, self::RECURRING_GROUP));
+        $this->assertTrue($this->inGroup(4, self::ONETIME_GROUP));
+    }
+
+    #[Test]
+    public function a_new_recurring_backer_leaves_the_onetime_group_even_if_added_by_hand(): void
+    {
+        $this->members([[4, self::ONETIME_GROUP]]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'carol@example.com')]);
+
+        $this->sync();
+
+        $this->assertTrue($this->inGroup(4, self::RECURRING_GROUP));
+        $this->assertFalse($this->inGroup(4, self::ONETIME_GROUP));
+    }
+
+    #[Test]
+    public function a_recurring_membership_another_source_still_wants_is_kept(): void
+    {
+        FakeOtherSupporterSource::$wants = [self::RECURRING_GROUP => [5]];
+        $this->known(5, BackerStatus::Recurring, [self::RECURRING_GROUP]);
+        $this->members([[5, self::RECURRING_GROUP]]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('CANCELLED', 'MONTHLY', 'dave@example.com')]);
+
+        $this->sync();
+
+        $this->assertTrue($this->inGroup(5, self::RECURRING_GROUP));
+        $this->assertFalse($this->inGroup(5, self::ONETIME_GROUP));
+        $this->assertSame([], Backer::find(5)->managedGroupIds(), 'ownership passes to the source that still wants it');
+        $this->assertSame(['RecurringBackingStopped:5'], $this->eventLog());
+    }
+
+    #[Test]
+    public function a_onetime_backer_another_source_has_as_recurring_is_not_put_in_the_onetime_group(): void
+    {
+        FakeOtherSupporterSource::$wants = [self::RECURRING_GROUP => [3]];
+        FakeOpenCollectiveProvider::backers(onetime: [$this->order('PAID', 'ONETIME', 'bob@example.com')]);
+
+        $this->sync();
+
+        $this->assertFalse($this->inGroup(3, self::ONETIME_GROUP));
+        $this->assertSame(BackerStatus::OneTime, Backer::find(3)->status);
+    }
+
+    #[Test]
+    public function a_onetime_membership_another_source_still_wants_is_kept(): void
+    {
+        FakeOtherSupporterSource::$wants = [self::ONETIME_GROUP => [3]];
+        $this->known(3, BackerStatus::OneTime, [self::ONETIME_GROUP]);
+        $this->members([[3, self::ONETIME_GROUP]]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
+
+        $this->sync();
+
+        $this->assertTrue($this->inGroup(3, self::ONETIME_GROUP));
+        $this->assertNull(Backer::find(3));
+        $this->assertContains('BackingEnded:3', $this->eventLog());
+    }
+
+    #[Test]
+    public function another_sources_onetime_claim_is_dropped_by_that_source_and_then_cleared(): void
+    {
+        // Round 1: the other source still claims the one-time membership, so it stays.
+        FakeOtherSupporterSource::$wants = [self::ONETIME_GROUP => [2]];
+        $this->members([[2, self::ONETIME_GROUP]]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
+
+        $this->sync();
+
+        $this->assertTrue($this->inGroup(2, self::RECURRING_GROUP));
+        $this->assertTrue($this->inGroup(2, self::ONETIME_GROUP));
+
+        // Round 2: seeing the recurring membership, the other source stops claiming it,
+        // as BackerGroupClaims does, and the one-time membership goes.
+        FakeOtherSupporterSource::$wants = [];
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
+        $this->runCommand(['command' => 'fof:open-collective:update']);
+
+        $this->assertTrue($this->inGroup(2, self::RECURRING_GROUP));
+        $this->assertFalse($this->inGroup(2, self::ONETIME_GROUP));
+    }
+
+    #[Test]
+    public function a_source_mapping_the_groups_the_other_way_round_causes_no_tug_of_war(): void
+    {
+        // The other source treats this extension's one-time group as its monthly group
+        // and has put alice there; this extension has alice as a recurring backer.
+        FakeOtherSupporterSource::$wants = [self::ONETIME_GROUP => [2]];
+        $this->members([[2, self::ONETIME_GROUP]]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
+        $this->sync();
+
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
+        $second = $this->runCommand(['command' => 'fof:open-collective:update']);
+
+        // Both memberships stay, and a second run changes nothing: no battle.
+        $this->assertTrue($this->inGroup(2, self::RECURRING_GROUP));
+        $this->assertTrue($this->inGroup(2, self::ONETIME_GROUP));
+        $this->assertStringContainsString('No changes needed', $second);
+    }
+
+    #[Test]
+    public function a_onetime_backer_already_in_the_recurring_group_is_not_claimed_for_the_onetime_group(): void
+    {
+        $this->known(2, BackerStatus::OneTime, []);
+        $this->known(3, BackerStatus::OneTime, []);
+        $this->members([[2, self::RECURRING_GROUP]]);
+
+        $claims = $this->app()->getContainer()->make(BackerGroupClaims::class);
+
+        $this->assertSame([3], $claims([2, 3], self::ONETIME_GROUP));
+    }
+
+    #[Test]
+    public function this_extension_tells_other_sources_whom_it_wants_in_each_group(): void
+    {
+        $this->known(2, BackerStatus::Recurring, []);
+        $this->known(3, BackerStatus::OneTime, []);
+        $this->known(4, null, [self::RECURRING_GROUP]);
+
+        $claims = $this->app()->getContainer()->make(BackerGroupClaims::class);
+
+        $this->assertSame([2], $claims([2, 3, 4], self::RECURRING_GROUP));
+        $this->assertSame([3], $claims([2, 3, 4], self::ONETIME_GROUP));
+        $this->assertSame([], $claims([2, 3, 4], 999));
+        $this->assertContains(BackerGroupClaims::class, array_map(fn ($c) => $c::class, iterator_to_array($this->app()->getContainer()->tagged(BackerGroupClaims::TAG))));
     }
 
     #[Test]
@@ -248,8 +403,9 @@ class UpdateCommandTest extends SyncTestCase
         $this->assertTrue($this->inGroup(2, self::RECURRING_GROUP));
         $this->assertSame(BackerStatus::Recurring, Backer::find(2)->status);
         $this->assertSame(BackerStatus::OneTime, Backer::find(3)->status);
-        // Restoring alice's membership is still recorded; bob's unchanged groups are not.
-        $this->assertSame(['BackerGroupsChanged:2'], $this->eventLog());
+        // No status events, but restoring alice's membership and adopting bob's
+        // hand-added one are still recorded.
+        $this->assertSame(['BackerGroupsChanged:2', 'BackerMembershipAdopted:3'], $this->eventLog());
         $this->assertNotEmpty($this->database()->table('settings')->where('key', BackerSynchronizer::BASELINE_SETTING)->value('value'));
     }
 

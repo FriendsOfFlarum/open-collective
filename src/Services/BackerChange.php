@@ -22,13 +22,15 @@ class BackerChange
     /**
      * @param array<int> $addedGroupIds
      * @param array<int> $removedGroupIds
+     * @param array<int> $adoptedGroupIds Existing memberships the sync took over
      */
     public function __construct(
         public readonly User $user,
         public readonly ?BackerStatus $previous,
         public readonly ?BackerStatus $current,
         public readonly array $addedGroupIds,
-        public readonly array $removedGroupIds
+        public readonly array $removedGroupIds,
+        public readonly array $adoptedGroupIds = []
     ) {
     }
 

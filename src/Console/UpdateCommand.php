@@ -137,7 +137,7 @@ class UpdateCommand extends Command
 
             $changes = $this->synchronizer->synchronize($backers, $recurringGroup, $onetimeGroup, $dryRun);
             $groupNames = Group::query()
-                ->whereIn('id', $changes->flatMap(fn (BackerChange $change) => [...$change->addedGroupIds, ...$change->removedGroupIds])->unique()->values())
+                ->whereIn('id', $changes->flatMap(fn (BackerChange $change) => [...$change->addedGroupIds, ...$change->removedGroupIds, ...$change->adoptedGroupIds])->unique()->values())
                 ->pluck('name_singular', 'id');
 
             foreach ($changes as $change) {
@@ -188,6 +188,10 @@ class UpdateCommand extends Command
 
         foreach ($change->removedGroupIds as $id) {
             $parts[] = '-'.($groupNames[$id] ?? "group #$id");
+        }
+
+        foreach ($change->adoptedGroupIds as $id) {
+            $parts[] = 'took over '.($groupNames[$id] ?? "group #$id");
         }
 
         return "|> #{$change->user->id} {$change->user->username}: ".implode(', ', $parts);

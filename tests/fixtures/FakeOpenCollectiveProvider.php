@@ -76,7 +76,9 @@ class FakeOpenCollectiveProvider extends AbstractServiceProvider
     public function register(): void
     {
         $this->container->singleton(OpenCollectiveClient::class, function () {
-            $stack = HandlerStack::create(new MockHandler(self::$responses));
+            // Read the queue per request, so a test can queue responses for a second run
+            // after the client singleton exists.
+            $stack = HandlerStack::create(fn ($request, array $options) => (new MockHandler([array_shift(self::$responses) ?? new \RuntimeException('No queued Open Collective response')]))($request, $options));
             $stack->push(Middleware::history(self::$history));
 
             return new OpenCollectiveClient(new Client(['handler' => $stack]));
