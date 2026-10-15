@@ -22,3 +22,14 @@ fof-open-collective:
 
       onetime_group_label: One-Time Backers Group (Optional)
       onetime_group_help: Select which Flarum user group one-time backers should be added to. If not set, one-time backers will not be managed. When a recurring backer cancels their subscription, they will be moved to this group.
+
+# Audit log entries, rendered by flarum/audit when it is enabled.
+flarum-audit:
+  lib:
+    browser:
+      fof_open_collective:
+        recurring_started: "{username} became a recurring backer on Open Collective. Groups: {old_groups} → {new_groups}"
+        recurring_stopped: "{username}'s recurring backing on Open Collective stopped. Groups: {old_groups} → {new_groups}"
+        onetime_started: "{username} became a one-time backer on Open Collective. Groups: {old_groups} → {new_groups}"
+        backing_ended: "{username} is no longer an Open Collective backer. Groups: {old_groups} → {new_groups}"
+        groups_changed: "Open Collective sync changed {username}'s groups from {old_groups} to {new_groups}"

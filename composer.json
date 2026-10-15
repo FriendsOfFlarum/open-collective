@@ -22,6 +22,9 @@
         "flarum/core": "^2.0.0",
         "guzzlehttp/guzzle": "^7.1"
     },
+    "suggest": {
+        "flarum/audit": "Records every backer status and group change the sync makes in the audit log."
+    },
     "authors": [
         {
             "name": "David Sevilla Martín",
@@ -44,7 +47,10 @@
                 "backgroundSize": "60%",
                 "backgroundRepeat": "no-repeat",
                 "backgroundPosition": "center"
-            }
+            },
+            "optional-dependencies": [
+                "flarum/audit"
+            ]
         },
         "flarum-cli": {
             "modules": {
@@ -77,6 +83,7 @@
         "test:setup": "Sets up a database for use with integration tests. Execute this only once."
     },
     "require-dev": {
+        "flarum/audit": "^2.0",
         "flarum/phpstan": "^2.0.0",
         "flarum/testing": "^2.0.0"
     },
