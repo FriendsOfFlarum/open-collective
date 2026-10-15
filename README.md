@@ -10,7 +10,7 @@ A [Flarum](http://flarum.org) extension that automatically synchronizes your Ope
 - 👥 **Smart User Matching**: Matches backers via email addresses
 - 🎯 **Dual Group Support**: Separate groups for recurring and one-time backers
 - 🔄 **Status-Based Categorization**: Automatically moves past recurring backers to one-time group
-- 🔒 **Safe Group Management**: Only manages users it adds, won't interfere with manually assigned groups
+- 🔒 **Safe Group Management**: Only removes memberships it owns and no other supporter source still wants; a supporter is never in both groups
 - 🩺 **Sync Status and Connection Test**: See the last sync's result on the settings page and test a token before saving it
 - 📝 **Audit Log**: With [Audit](https://docs.flarum.org/extensions/audit) enabled, every status and group change the sync makes is recorded
 - 🧪 **Dry-Run Mode**: Preview changes before applying them
@@ -150,9 +150,15 @@ The extension matches Open Collective backers to Flarum users by comparing email
 - A Flarum user must exist with that same email address
 - The Flarum user's email must be confirmed
 
+## How Group Membership Works
+
+- **The sync owns a membership** it added, or one it found already in place (for example added by hand) when the user's backing justifies it. Taking over such a membership is reported in the command output and recorded in the audit log.
+- **It only removes memberships it owns**, and only when no other supporter source still wants the user in that group. With [GitHub Sponsors](https://github.com/FriendsOfFlarum/github-sponsors) managing the same groups, someone who supports through both never loses a group because one of them ended.
+- **A supporter is never in both groups.** The recurring group wins: a recurring backer is taken out of the one-time group, even if they were added to it by hand, and anyone already in the recurring group is not also put in the one-time group.
+- **Members nobody wants are left alone.** Hand-added members who are not backers are never touched.
+
 ## Important Notes
 
-- **Safe Group Management**: The extension only removes the group from users it previously added. It won't affect users who were manually added to the group.
 - **Email Matching**: Users must have the same email address as their Open Collective account.
 - **Backer Categorization**:
   - Users with active monthly or yearly subscriptions are placed in the recurring backers group
@@ -203,7 +209,26 @@ return [
 
 - Events fire after the database changes have been made, and never in `--dry-run` mode.
 - The first sync after installing or upgrading records statuses without status events, so existing backers are not announced as new. Group repairs on that run still fire `BackerGroupsChanged`.
-- Group memberships are only removed where the extension added them. Members an admin added by hand still get status events but keep their groups.
+- Group memberships are only removed where the extension owns them (it added or adopted them) and no other supporter source still wants them. A hand-added member is adopted once their backing justifies the group.
+
+### Sharing groups with other supporter sources
+
+Supporter sources that manage the same groups ask each other before removing anyone. Each registers an invokable under the `fof.supporter-groups` container tag that takes user IDs and a group ID and returns the subset of those users it wants in that group:
+
+```php
+$container->tag([MySourceClaims::class], 'fof.supporter-groups');
+
+class MySourceClaims
+{
+    /** @param array<int> $userIds @return array<int> */
+    public function __invoke(array $userIds, int $groupId): array
+    {
+        // the users your source currently puts in $groupId
+    }
+}
+```
+
+The contract is a plain string tag, so sources need no shared package. This extension's own answer comes from `FoF\OpenCollective\Services\BackerGroupClaims`. Adopting a membership fires `FoF\OpenCollective\Event\BackerMembershipAdopted` (`$user`, `$groupIds`).
 
 ### Upgrading from 1.x
 
