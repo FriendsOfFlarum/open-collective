@@ -17,6 +17,51 @@ use Illuminate\Support\Collection;
 class BackerMatcher
 {
     /**
+     * How many incognito backers there are, split like {@see categorizeBackers()}.
+     * They can never be matched to a forum account.
+     *
+     * @param array<object> $backers
+     *
+     * @return array{recurring: int, onetime: int}
+     */
+    public function countPrivate(array $backers): array
+    {
+        return $this->countByType(array_filter($backers, fn ($backer) => !empty($backer->fromAccount->isIncognito)));
+    }
+
+    /**
+     * How many backers, other than incognito ones, match no confirmed forum email,
+     * split like {@see categorizeBackers()}.
+     *
+     * @param array<object> $backers
+     *
+     * @return array{recurring: int, onetime: int}
+     */
+    public function countUnmatched(array $backers): array
+    {
+        $public = array_filter($backers, fn ($backer) => empty($backer->fromAccount->isIncognito));
+        $matched = $this->matchBackersOfTypeToUsers(array_values($public))->map(fn (User $user) => strtolower($user->email))->all();
+
+        return $this->countByType(array_filter($public, function ($backer) use ($matched) {
+            $email = $backer->fromAccount->email ?? null;
+
+            return !$email || !in_array(strtolower($email), $matched, true);
+        }));
+    }
+
+    /**
+     * @param array<object> $backers
+     *
+     * @return array{recurring: int, onetime: int}
+     */
+    protected function countByType(array $backers): array
+    {
+        $categorized = $this->categorizeBackers(array_values($backers));
+
+        return ['recurring' => count($categorized['recurring']), 'onetime' => count($categorized['onetime'])];
+    }
+
+    /**
      * Categorize backers by type (recurring vs one-time).
      *
      * @param array $backers Array of backer data from Open Collective API (Order objects)

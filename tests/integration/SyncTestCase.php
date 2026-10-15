@@ -71,13 +71,13 @@ abstract class SyncTestCase extends ConsoleTestCase
         ]);
     }
 
-    protected function order(string $status, string $frequency, ?string $email): array
+    protected function order(string $status, string $frequency, ?string $email, bool $incognito = false): array
     {
         return [
             'status'      => $status,
             'frequency'   => $frequency,
             'tier'        => ['name' => 'Backer'],
-            'fromAccount' => ['id' => 'acct-'.($email ?? uniqid()), 'email' => $email],
+            'fromAccount' => ['id' => 'acct-'.($email ?? uniqid()), 'isIncognito' => $incognito, 'email' => $email],
         ];
     }
 

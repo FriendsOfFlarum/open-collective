@@ -21,6 +21,7 @@ use FoF\OpenCollective\BackerStatus;
 use FoF\OpenCollective\Services\BackerChange;
 use FoF\OpenCollective\Services\BackerMatcher;
 use FoF\OpenCollective\Services\BackerSynchronizer;
+use FoF\OpenCollective\Services\SupporterCounts;
 use FoF\OpenCollective\Services\SyncStatus;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
@@ -49,6 +50,7 @@ class UpdateCommand extends Command
         protected BackerMatcher $matcher,
         protected BackerSynchronizer $synchronizer,
         protected SyncStatus $status,
+        protected SupporterCounts $counts,
         protected LoggerInterface $logger
     ) {
         parent::__construct();
@@ -145,6 +147,12 @@ class UpdateCommand extends Command
             }
 
             $this->info($changes->isEmpty() ? 'No changes needed.' : $changes->count().' users '.($dryRun ? 'would change' : 'changed').'.');
+            $private = $this->matcher->countPrivate($backers);
+            $unmatched = $this->matcher->countUnmatched($backers);
+            $this->info("|> incognito backers: {$private['recurring']} recurring, {$private['onetime']} one-time");
+            $this->info("|> without a forum account: {$unmatched['recurring']} recurring, {$unmatched['onetime']} one-time");
+            $dryRun || $this->counts->record($private, $unmatched);
+
             $this->info('Done.');
             $dryRun || $this->status->recordSuccess(count($backers), $changes->count());
         } catch (OpenCollectiveException $e) {

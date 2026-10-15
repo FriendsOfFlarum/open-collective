@@ -214,6 +214,7 @@ class OpenCollectiveClient
                       }
                       fromAccount {
                         id
+                        isIncognito
                         ... on Individual {
                           email
                         }
