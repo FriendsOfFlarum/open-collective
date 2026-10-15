@@ -15,9 +15,9 @@ use Carbon\Carbon;
 use Flarum\Group\Group;
 use Flarum\Settings\SettingsRepositoryInterface;
 use FoF\OpenCollective\Api\OpenCollectiveClient;
+use FoF\OpenCollective\Api\OpenCollectiveException;
 use FoF\OpenCollective\Services\BackerMatcher;
 use FoF\OpenCollective\Services\GroupSynchronizer;
-use GuzzleHttp\Exception\RequestException;
 use Illuminate\Console\Command;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -29,14 +29,14 @@ class UpdateCommand extends Command
     /**
      * {@inheritdoc}
      */
-    protected $signature = 'fof:open-collective:update {--dry-run : Show what changes would be made without applying them}';
+    protected $signature = 'fof:open-collective:update
+        {--dry-run : Show what changes would be made without applying them}
+        {--force : Apply changes even when Open Collective reports no backers at all}';
 
     /**
      * {@inheritdoc}
      */
     protected $description = 'Update groups of Open Collective supporters.';
-
-    protected string $prefix;
 
     public function __construct(
         private SettingsRepositoryInterface $settings,
@@ -46,7 +46,6 @@ class UpdateCommand extends Command
         private LoggerInterface $logger
     ) {
         parent::__construct();
-        $this->prefix = Carbon::now()->format('M d, Y @ h:m A');
     }
 
     public function handle(): int
@@ -63,7 +62,7 @@ class UpdateCommand extends Command
         try {
             // Load and validate settings
             $apiKey = $this->settings->get('fof-open-collective.api_key');
-            $slug = strtolower($this->settings->get('fof-open-collective.slug'));
+            $slug = strtolower((string) $this->settings->get('fof-open-collective.slug'));
             $recurringGroupId = $this->settings->get('fof-open-collective.group_id');
             $onetimeGroupId = $this->settings->get('fof-open-collective.onetime_group_id');
             $isLegacyApiKey = (int) $this->settings->get('fof-open-collective.use_legacy_api_key');
@@ -72,6 +71,10 @@ class UpdateCommand extends Command
 
             $recurringGroup = Group::find((int) $recurringGroupId);
             $onetimeGroup = $onetimeGroupId ? Group::find((int) $onetimeGroupId) : null;
+
+            if ($onetimeGroupId && !$onetimeGroup) {
+                throw new UnexpectedValueException("Invalid one-time group ID: '$onetimeGroupId'");
+            }
 
             if ($verbose) {
                 $this->info('Configuration:');
@@ -99,6 +102,17 @@ class UpdateCommand extends Command
 
             $this->info('|> '.count($backers)." backers of {$collectiveName}");
 
+            // An empty result removes every managed member in one run. That is right
+            // for a collective that truly lost all its backers, but far more often it
+            // means the API answered oddly, so it needs an explicit --force.
+            if (count($backers) === 0 && !$this->option('force') && ($this->synchronizer->getManagedUsers()->isNotEmpty() || $this->synchronizer->getManagedOnetimeUsers()->isNotEmpty())) {
+                $message = 'Open Collective returned no backers, which would remove every managed group member. No changes made; re-run with --force if this is correct.';
+                $this->error($message);
+                $this->logger->error('[fof/open-collective] '.$message);
+
+                return 1;
+            }
+
             // Categorize backers by type
             $categorized = $this->matcher->categorizeBackers($backers);
             $recurringBackers = $categorized['recurring'];
@@ -111,11 +125,8 @@ class UpdateCommand extends Command
                 $this->line('');
                 $this->info('Backer details from Open Collective:');
                 foreach ($backers as $backer) {
-                    $backerData = $backer->account ?? $backer;
-                    $email = $backerData->email ?? 'no email';
-                    $frequency = $backer->tier->frequency ?? 'ONETIME';
-                    $type = ($frequency === 'MONTHLY' || $frequency === 'YEARLY') ? 'recurring' : 'one-time';
-                    $this->info("|> Email: $email [$type]");
+                    $email = $backer->fromAccount->email ?? 'no email';
+                    $this->info("|> Email: $email [{$this->backerType($backer)}]");
                 }
                 $this->line('');
             }
@@ -157,18 +168,15 @@ class UpdateCommand extends Command
 
                 if ($totalUnregistered > 0) {
                     $this->info('Unmatched backers (not registered on Flarum):');
-                    $matchedEmails = $recurringUsers->pluck('email')->merge($onetimeUsers->pluck('email'))->all();
+                    $matchedEmails = $recurringUsers->pluck('email')->merge($onetimeUsers->pluck('email'))->map(fn ($email) => strtolower($email))->all();
 
                     foreach ($backers as $backer) {
-                        $backerData = $backer->account ?? $backer;
-                        $email = $backerData->email ?? null;
+                        $email = $backer->fromAccount->email ?? null;
 
-                        if (!$email || !in_array($email, $matchedEmails)) {
+                        if (!$email || !in_array(strtolower($email), $matchedEmails, true)) {
                             $emailDisplay = $email ?: 'no email provided';
                             $reason = !$email ? ' (no email to match)' : ' (no matching Flarum user found)';
-                            $frequency = $backer->tier->frequency ?? 'ONETIME';
-                            $type = ($frequency === 'MONTHLY' || $frequency === 'YEARLY') ? 'recurring' : 'one-time';
-                            $this->info("|> Email: $emailDisplay [$type]{$reason}");
+                            $this->info("|> Email: $emailDisplay [{$this->backerType($backer)}]{$reason}");
                         }
                     }
                     $this->line('');
@@ -287,7 +295,7 @@ class UpdateCommand extends Command
             }
 
             $this->info('Done.');
-        } catch (RequestException $e) {
+        } catch (OpenCollectiveException $e) {
             $this->handleApiError($e);
 
             return 1;
@@ -309,35 +317,34 @@ class UpdateCommand extends Command
     }
 
     /**
-     * Handle Open Collective API errors gracefully.
+     * Explain an Open Collective failure in terms an admin can act on.
      */
-    private function handleApiError(RequestException $e): void
+    protected function handleApiError(OpenCollectiveException $e): void
     {
-        $response = $e->getResponse();
-        $statusCode = $response ? $response->getStatusCode() : null;
+        $message = match ($e->kind) {
+            OpenCollectiveException::UNAUTHORIZED     => 'Open Collective rejected the token. It may have expired or been revoked.',
+            OpenCollectiveException::FORBIDDEN        => 'The Open Collective token is missing a required scope. It needs the "orders" and "email" scopes.',
+            OpenCollectiveException::EMAILS_HIDDEN    => 'The Open Collective token cannot read backer emails. It needs the "email" scope.',
+            OpenCollectiveException::NOT_FOUND        => 'Open Collective collective not found. Check the collective slug.',
+            OpenCollectiveException::RATE_LIMITED     => 'Open Collective rate limit exceeded. The next run will try again.',
+            OpenCollectiveException::NETWORK          => 'Could not reach Open Collective.',
+            OpenCollectiveException::INVALID_RESPONSE => 'Open Collective returned an unexpected response.',
+            default                                   => 'Open Collective API request failed.',
+        };
 
-        $message = 'Open Collective API error';
+        $this->error($message.' ('.$e->getMessage().')');
 
-        if ($statusCode === 401) {
-            $message = 'Open Collective API authentication failed. Please check your API token.';
-            $this->error($message);
+        if (in_array($e->kind, [OpenCollectiveException::UNAUTHORIZED, OpenCollectiveException::FORBIDDEN, OpenCollectiveException::EMAILS_HIDDEN], true)) {
             $this->line('');
             $this->line('To fix this:');
-            $this->line('1. Generate a new Personal Token at: https://opencollective.com/applications');
+            $this->line('1. Create a Personal Token with the "orders" and "email" scopes at https://opencollective.com/applications');
+            $this->line('   (the token owner must be an admin of the collective)');
             $this->line('2. Update the token in your admin settings');
-        } elseif ($statusCode === 403) {
-            $message = 'Open Collective API rate limit exceeded or insufficient permissions.';
-            $this->error($message);
-        } elseif ($statusCode === 404) {
-            $message = 'Open Collective collective not found.';
-            $this->error($message);
-        } else {
-            $this->error('Open Collective API request failed: '.$e->getMessage());
         }
 
         $this->logger->error('[fof/open-collective] '.$message, [
-            'status_code' => $statusCode,
-            'exception'   => $e->getMessage(),
+            'kind'      => $e->kind,
+            'exception' => $e->getMessage(),
         ]);
     }
 
@@ -380,27 +387,23 @@ class UpdateCommand extends Command
         $this->info("|> $prefix #{$user->id} {$user->username}");
     }
 
-    public function info($string, $verbosity = null)
+    protected function backerType(object $backer): string
     {
-        parent::info($this->prefix.' | '.$string, $verbosity);
+        return in_array($backer->frequency ?? null, ['MONTHLY', 'YEARLY'], true) && ($backer->status ?? null) === 'ACTIVE'
+            ? 'recurring'
+            : 'one-time';
     }
 
-    public function warn($string, $verbosity = null)
-    {
-        parent::warn($this->prefix.' | '.$string, $verbosity);
-    }
-
-    public function error($string, $verbosity = null)
-    {
-        parent::error($this->prefix.' | '.$string, $verbosity);
-    }
-
+    /**
+     * Prefix every non-empty line with the current time, so the appended scheduler
+     * log shows when each run happened. info(), warn() and error() all route here.
+     */
     public function line($string, $style = null, $verbosity = null)
     {
         if ($string !== '') {
-            parent::line($this->prefix.' | '.$string, $style, $verbosity);
-        } else {
-            parent::line($string, $style, $verbosity);
+            $string = Carbon::now()->format('M d, Y @ h:i A').' | '.$string;
         }
+
+        parent::line($string, $style, $verbosity);
     }
 }
