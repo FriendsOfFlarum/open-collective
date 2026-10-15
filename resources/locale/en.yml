@@ -23,6 +23,27 @@ fof-open-collective:
       onetime_group_label: One-Time Backers Group (Optional)
       onetime_group_help: Select which Flarum user group one-time backers should be added to. If not set, one-time backers will not be managed. When a recurring backer cancels their subscription, they will be moved to this group.
 
+    status:
+      heading: Sync status
+      never_run: The sync has not run yet. It runs hourly through Flarum's scheduler, so check that the scheduler is set up.
+      last_success: "Last sync {time}: {backers} backers, {changes} changes."
+      last_failure: "Last sync {time} failed: {reason}"
+      stale: The last sync was more than two hours ago. Check that Flarum's scheduler is running.
+      test_button: Test connection
+      test_success: "Connected to {collective} as {account}. {orders} contributions found, and backer emails are readable."
+      test_success_no_orders: "Connected to {collective} as {account}. There are no contributions yet, so email access could not be checked."
+      request_failed: The connection test could not be run.
+      reasons:
+        unauthorized: Open Collective rejected the token. It may have expired or been revoked.
+        forbidden: The token is missing a required scope. It needs the "orders" and "email" scopes.
+        emails_hidden: The token cannot read backer emails. It needs the "email" scope.
+        not_found: Collective not found. Check the collective slug.
+        rate_limited: Open Collective's rate limit was reached. The next sync will try again.
+        network: Could not reach Open Collective.
+        configuration: The token, collective slug or group settings are incomplete.
+        no_backers: Open Collective returned no backers, so nothing was changed. Run the sync with --force if this is correct.
+        other: Open Collective returned an unexpected response.
+
 # Audit log entries, rendered by flarum/audit when it is enabled.
 flarum-audit:
   lib:

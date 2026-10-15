@@ -2,9 +2,23 @@ import Extend from 'flarum/common/extenders';
 import app from 'flarum/admin/app';
 import Link from 'flarum/common/components/Link';
 import Group from 'flarum/common/models/Group';
+import type ExtensionPage from 'flarum/admin/components/ExtensionPage';
+import SyncStatusPanel from './components/SyncStatusPanel';
 
 export default [
   new Extend.Admin() //
+    // Re-run on every render with the page as `this`, so the test uses unsaved form values.
+    .customSetting(function (this: ExtensionPage) {
+      return (
+        <SyncStatusPanel
+          credentials={() => ({
+            apiKey: this.setting('fof-open-collective.api_key')(),
+            slug: this.setting('fof-open-collective.slug')(),
+            useLegacyApiKey: !!Number(this.setting('fof-open-collective.use_legacy_api_key')()),
+          })}
+        />
+      );
+    }, 100)
     .setting(() => ({
       type: 'bool',
       setting: 'fof-open-collective.use_legacy_api_key',
