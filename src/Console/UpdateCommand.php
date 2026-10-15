@@ -21,6 +21,7 @@ use FoF\OpenCollective\BackerStatus;
 use FoF\OpenCollective\Services\BackerChange;
 use FoF\OpenCollective\Services\BackerMatcher;
 use FoF\OpenCollective\Services\BackerSynchronizer;
+use FoF\OpenCollective\Services\SyncStatus;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
 use Psr\Log\LoggerInterface;
@@ -47,6 +48,7 @@ class UpdateCommand extends Command
         protected OpenCollectiveClient $client,
         protected BackerMatcher $matcher,
         protected BackerSynchronizer $synchronizer,
+        protected SyncStatus $status,
         protected LoggerInterface $logger
     ) {
         parent::__construct();
@@ -106,6 +108,7 @@ class UpdateCommand extends Command
                 $message = 'Open Collective returned no backers, which would end every known backing. No changes made; re-run with --force if this is correct.';
                 $this->error($message);
                 $this->logger->error('[fof/open-collective] '.$message);
+                $dryRun || $this->status->recordFailure(SyncStatus::NO_BACKERS, $message);
 
                 return 1;
             }
@@ -143,13 +146,16 @@ class UpdateCommand extends Command
 
             $this->info($changes->isEmpty() ? 'No changes needed.' : $changes->count().' users '.($dryRun ? 'would change' : 'changed').'.');
             $this->info('Done.');
+            $dryRun || $this->status->recordSuccess(count($backers), $changes->count());
         } catch (OpenCollectiveException $e) {
             $this->handleApiError($e);
+            $dryRun || $this->status->recordFailure($e->kind, $e->getMessage());
 
             return 1;
         } catch (UnexpectedValueException $e) {
             $this->error($e->getMessage());
             $this->logger->error('[fof/open-collective] Configuration error: '.$e->getMessage());
+            $dryRun || $this->status->recordFailure(SyncStatus::CONFIGURATION, $e->getMessage());
 
             return 1;
         } catch (Throwable $e) {
@@ -157,6 +163,7 @@ class UpdateCommand extends Command
             $this->logger->error('[fof/open-collective] Unexpected error: '.$e->getMessage(), [
                 'exception' => $e,
             ]);
+            $dryRun || $this->status->recordFailure(SyncStatus::UNEXPECTED, $e->getMessage());
 
             return 1;
         }
