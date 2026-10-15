@@ -86,13 +86,15 @@ class GroupSynchronizer
             // (users in recurring group who are now in one-time backers list)
             $usersToMoveToOnetime = collect();
             if ($onetimeGroup) {
-                $onetimeEmailsCollection = collect($onetimeEmails);
+                $onetimeEmailsCollection = collect($onetimeEmails)->map(fn ($email) => strtolower($email));
+                $recurringEmailsLower = array_map('strtolower', $recurringEmails);
                 $usersToMoveToOnetime = $recurringGroup->users()
                     ->whereIn('users.id', $usersManaging)
                     ->get()
-                    ->filter(function ($user) use ($onetimeEmailsCollection, $recurringEmails) {
-                        // User is in one-time list and NOT in recurring list
-                        return $onetimeEmailsCollection->contains($user->email) && !in_array($user->email, $recurringEmails);
+                    ->filter(function ($user) use ($onetimeEmailsCollection, $recurringEmailsLower) {
+                        $email = strtolower($user->email);
+
+                        return $onetimeEmailsCollection->contains($email) && !in_array($email, $recurringEmailsLower, true);
                     });
             }
 
@@ -123,12 +125,14 @@ class GroupSynchronizer
             // Add to recurring group
             $usersToAdd = $this->addUsersToGroup($recurringGroup, $recurringUsers, $usersManaging, $dryRun);
 
-            if (!$dryRun && $usersToAdd->count() > 0) {
+            if (!$dryRun) {
                 foreach ($usersToAdd as $user) {
                     $backerData = $this->findBackerDataForUser($user, $recurringBackers);
                     $this->events->dispatch(new BackerAdded($user, $backerData));
                 }
 
+                // Saved after removal-only runs too: a removed user left on the list
+                // would be stripped again if an admin later re-added them by hand.
                 $usersManaging = $usersManaging->merge($usersToAdd->pluck('id'));
                 $this->updateManagedUsers($usersManaging);
             }
@@ -149,8 +153,13 @@ class GroupSynchronizer
             if (!$dryRun && $usersToRemove->count() > 0) {
                 $this->removeUsersFromGroup($onetimeGroup, $usersToRemove);
 
+                $recurringEmailsLower = array_map('strtolower', $recurringEmails);
+
                 foreach ($usersToRemove as $user) {
-                    $this->events->dispatch(new BackerRemoved($user));
+                    // Upgrading to a recurring backer is not the end of their backing.
+                    if (!in_array(strtolower($user->email), $recurringEmailsLower, true)) {
+                        $this->events->dispatch(new BackerRemoved($user));
+                    }
                 }
             }
 
@@ -164,7 +173,7 @@ class GroupSynchronizer
             // Add to one-time group
             $usersAdded = $this->addUsersToGroup($onetimeGroup, $usersToAdd, $onetimeUsersManaging, $dryRun);
 
-            if (!$dryRun && $usersAdded->count() > 0) {
+            if (!$dryRun) {
                 foreach ($usersAdded as $user) {
                     $backerData = $this->findBackerDataForUser($user, $onetimeBackers);
                     $this->events->dispatch(new BackerAdded($user, $backerData));
@@ -252,15 +261,13 @@ class GroupSynchronizer
      *
      * @return object|null
      */
-    private function findBackerDataForUser(User $user, array $backers): ?object
+    protected function findBackerDataForUser(User $user, array $backers): ?object
     {
         foreach ($backers as $backer) {
-            $backerData = $backer->account ?? $backer;
-            $email = $backerData->email ?? null;
+            $email = $backer->fromAccount->email ?? null;
 
-            // Match by email
-            if ($email && $user->email === $email) {
-                return $backerData;
+            if ($email && strtolower($user->email) === strtolower($email)) {
+                return $backer->fromAccount;
             }
         }
 
@@ -286,15 +293,9 @@ class GroupSynchronizer
             ->whereIn('users.id', $usersManaging)
             ->get();
 
-        // Filter out users who are still backers (matched by email)
-        return $managedGroupUsers->filter(function ($user) use ($backerEmails) {
-            // Check if user is matched by email
-            if (in_array($user->email, $backerEmails)) {
-                return false; // Keep this user (don't remove)
-            }
+        $backerEmails = array_map('strtolower', $backerEmails);
 
-            return true; // Remove this user
-        });
+        return $managedGroupUsers->reject(fn ($user) => in_array(strtolower($user->email), $backerEmails, true));
     }
 
     /**

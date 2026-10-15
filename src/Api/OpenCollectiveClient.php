@@ -11,194 +11,224 @@
 
 namespace FoF\OpenCollective\Api;
 
-use Exception;
 use GuzzleHttp\Client;
-use Illuminate\Support\Arr;
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Exception\GuzzleException;
+use GuzzleHttp\Exception\RequestException;
 
 class OpenCollectiveClient
 {
+    protected const ENDPOINT = 'https://api.opencollective.com/graphql/v2';
+
+    /** The API's maximum page size for `orders`; it silently defaults to 100 when no limit is sent. */
+    protected const PAGE_SIZE = 100;
+
     /**
-     * @var Client
+     * Order statuses that mean money actually changed hands. Excludes ERROR, EXPIRED,
+     * REJECTED, PENDING, REQUIRE_CLIENT_CONFIRMATION, REFUNDED and the like, which
+     * would otherwise earn the one-time group for a failed payment.
      */
-    private $client;
+    public const CONTRIBUTED_STATUSES = ['ACTIVE', 'PAID', 'CANCELLED', 'PAUSED'];
+
+    protected Client $client;
 
     public function __construct(?Client $client = null)
     {
-        $this->client = $client ?? new Client();
+        // Without a timeout a hung request blocks forever, and the scheduler's
+        // withoutOverlapping() lock then stops every later run for 24 hours.
+        $this->client = $client ?? new Client(['timeout' => 30, 'connect_timeout' => 10]);
     }
 
     /**
-     * Fetch backers from Open Collective GraphQL API.
+     * Fetch every contributing backer of a collective, one order per person.
      *
-     * @param string $apiKey      Open Collective API key or Personal Token
-     * @param string $slug        Collective slug
-     * @param bool   $isLegacyKey Whether using legacy API key format
+     * @throws OpenCollectiveException
      *
-     * @throws Exception
-     *
-     * @return array{collective: string, backers: array}
+     * @return array{collective: string, backers: array<object>}
      */
     public function fetchBackers(string $apiKey, string $slug, bool $isLegacyKey = false): array
     {
-        $header = $isLegacyKey ? 'Api-Key' : 'Personal-Token';
+        $data = $this->query($apiKey, $isLegacyKey, '
+            query collective($slug: String) {
+              collective(slug: $slug) {
+                name
+                slug
+              }
+            }
+        ', ['slug' => $slug]);
 
-        $response = $this->client->post('https://api.opencollective.com/graphql/v2', [
-            'json' => [
-                'query' => '
-                    query collective($slug: String) {
-                      collective(slug: $slug) {
-                        name
-                        slug
-                      }
-                    }
-                ',
-                'variables' => ['slug' => $slug],
-            ],
-            'headers' => [$header => $apiKey],
-        ]);
-
-        $json = json_decode($response->getBody()->getContents());
-
-        if (isset($json->errors)) {
-            throw new Exception(implode("\n", Arr::pluck($json->errors, 'message')));
+        if (!isset($data->collective)) {
+            throw new OpenCollectiveException(OpenCollectiveException::NOT_FOUND, "Collective '$slug' not found");
         }
 
-        if (!isset($json->data->collective)) {
-            throw new Exception("Collective '$slug' not found");
-        }
-
-        $collective = $json->data->collective;
-
-        // Fetch all orders (both recurring and one-time)
-        // Note: Fetching with onlyActive=false gets ALL orders (both ACTIVE and CANCELLED)
-        // so we don't need to fetch active orders separately
-        $allBackers = array_merge(
-            // All MONTHLY subscriptions (both ACTIVE and CANCELLED)
-            $this->fetchOrdersByFrequency($apiKey, $slug, $isLegacyKey, 'MONTHLY', false),
-            // All YEARLY subscriptions (both ACTIVE and CANCELLED)
-            $this->fetchOrdersByFrequency($apiKey, $slug, $isLegacyKey, 'YEARLY', false),
-            // One-time contributions
-            $this->fetchOrdersByFrequency($apiKey, $slug, $isLegacyKey, 'ONETIME', false)
+        $orders = array_merge(
+            $this->fetchOrdersByFrequency($apiKey, $slug, $isLegacyKey, 'MONTHLY'),
+            $this->fetchOrdersByFrequency($apiKey, $slug, $isLegacyKey, 'YEARLY'),
+            $this->fetchOrdersByFrequency($apiKey, $slug, $isLegacyKey, 'ONETIME')
         );
 
-        // Remove duplicates by email and account ID (keep the first occurrence)
-        // Note: Backers without emails are kept but can't be matched to Flarum users
-        $uniqueBackers = [];
-        $seenEmails = [];
-        $seenAccountIds = [];
+        $orders = array_values(array_filter(
+            $orders,
+            fn ($order) => in_array($order->status ?? null, self::CONTRIBUTED_STATUSES, true)
+        ));
 
-        foreach ($allBackers as $backer) {
-            $email = $backer->fromAccount->email ?? null;
-            $accountId = $backer->fromAccount->id ?? null;
-
-            // Check if we've already seen this backer (by email OR account ID)
-            $alreadySeen = false;
-
-            if ($email && in_array($email, $seenEmails)) {
-                $alreadySeen = true;
-            }
-
-            if ($accountId && in_array($accountId, $seenAccountIds)) {
-                $alreadySeen = true;
-            }
-
-            if (!$alreadySeen) {
-                if ($email) {
-                    $seenEmails[] = $email;
-                }
-                if ($accountId) {
-                    $seenAccountIds[] = $accountId;
-                }
-                $uniqueBackers[] = $backer;
-            }
+        // Some backers are legitimately email-less (incognito, guests), but none at
+        // all means the token cannot read emails. Syncing that would match nobody
+        // and remove every managed member.
+        if ($orders && !array_filter($orders, fn ($order) => !empty($order->fromAccount->email))) {
+            throw new OpenCollectiveException(
+                OpenCollectiveException::EMAILS_HIDDEN,
+                'Open Collective returned no backer emails. The token needs the "email" scope.'
+            );
         }
 
         return [
-            'collective' => $collective->name,
-            'backers'    => $uniqueBackers,
+            'collective' => $data->collective->name,
+            'backers'    => $this->uniqueBackers($orders),
         ];
     }
 
     /**
-     * Fetch orders by frequency from Open Collective GraphQL API.
+     * Reduce orders to one per person (by email, else account ID). An active
+     * recurring order wins, so a cancelled subscription never hides a live one.
      *
-     * @param string $apiKey      Open Collective API key or Personal Token
-     * @param string $slug        Collective slug
-     * @param bool   $isLegacyKey Whether using legacy API key format
-     * @param string $frequency   Frequency (MONTHLY, YEARLY, or ONETIME)
-     * @param bool   $onlyActive  Whether to fetch only active subscriptions
+     * @param array<object> $orders
      *
-     * @throws Exception
-     *
-     * @return array
+     * @return array<object>
      */
-    private function fetchOrdersByFrequency(
-        string $apiKey,
-        string $slug,
-        bool $isLegacyKey,
-        string $frequency,
-        bool $onlyActive
-    ): array {
-        $header = $isLegacyKey ? 'Api-Key' : 'Personal-Token';
+    protected function uniqueBackers(array $orders): array
+    {
+        $backers = [];
 
-        $response = $this->client->post('https://api.opencollective.com/graphql/v2', [
-            'json' => [
-                'query' => '
-                    query orders($slug: String!, $frequency: [ContributionFrequency], $onlyActive: Boolean) {
-                      orders(
-                        account: { slug: $slug }
-                        frequency: $frequency
-                        onlyActiveSubscriptions: $onlyActive
-                        filter: INCOMING
-                      ) {
-                        nodes {
-                          status
-                          frequency
-                          tier {
-                            name
-                          }
-                          fromAccount {
-                            id
-                            ... on Individual {
-                              email
-                            }
-                            ... on Organization {
-                              email
-                            }
-                          }
+        foreach ($orders as $order) {
+            $email = $order->fromAccount->email ?? null;
+            $key = $email ? 'email:'.strtolower($email) : 'account:'.($order->fromAccount->id ?? spl_object_id($order));
+
+            if (!isset($backers[$key]) || (!$this->isActiveRecurring($backers[$key]) && $this->isActiveRecurring($order))) {
+                $backers[$key] = $order;
+            }
+        }
+
+        return array_values($backers);
+    }
+
+    protected function isActiveRecurring(object $order): bool
+    {
+        return in_array($order->frequency ?? null, ['MONTHLY', 'YEARLY'], true) && ($order->status ?? null) === 'ACTIVE';
+    }
+
+    /**
+     * @throws OpenCollectiveException
+     *
+     * @return array<object>
+     */
+    protected function fetchOrdersByFrequency(string $apiKey, string $slug, bool $isLegacyKey, string $frequency): array
+    {
+        $orders = [];
+        $offset = 0;
+
+        do {
+            $data = $this->query($apiKey, $isLegacyKey, '
+                query orders($slug: String!, $frequency: [ContributionFrequency], $limit: Int!, $offset: Int!) {
+                  orders(
+                    account: { slug: $slug }
+                    frequency: $frequency
+                    filter: INCOMING
+                    limit: $limit
+                    offset: $offset
+                  ) {
+                    totalCount
+                    nodes {
+                      status
+                      frequency
+                      tier {
+                        name
+                      }
+                      fromAccount {
+                        id
+                        ... on Individual {
+                          email
+                        }
+                        ... on Organization {
+                          email
                         }
                       }
                     }
-                ',
-                'variables' => [
-                    'slug'       => $slug,
-                    'frequency'  => [$frequency],
-                    'onlyActive' => $onlyActive,
-                ],
-            ],
-            'headers' => [$header => $apiKey],
-        ]);
+                  }
+                }
+            ', [
+                'slug'      => $slug,
+                'frequency' => [$frequency],
+                'limit'     => self::PAGE_SIZE,
+                'offset'    => $offset,
+            ]);
 
-        $json = json_decode($response->getBody()->getContents());
+            if (!isset($data->orders->nodes, $data->orders->totalCount)) {
+                throw new OpenCollectiveException(OpenCollectiveException::INVALID_RESPONSE, "Open Collective returned no $frequency orders data");
+            }
 
-        if (isset($json->errors)) {
-            throw new Exception(implode("\n", Arr::pluck($json->errors, 'message')));
+            $page = (array) $data->orders->nodes;
+            array_push($orders, ...$page);
+            $offset += self::PAGE_SIZE;
+        } while ($page && $offset < $data->orders->totalCount);
+
+        return $orders;
+    }
+
+    /**
+     * Run a GraphQL query and return its `data`, turning every failure mode into
+     * an {@see OpenCollectiveException}.
+     *
+     * @param array<string, mixed> $variables
+     *
+     * @throws OpenCollectiveException
+     */
+    protected function query(string $apiKey, bool $isLegacyKey, string $query, array $variables): object
+    {
+        try {
+            $response = $this->client->post(self::ENDPOINT, [
+                'json'    => ['query' => $query, 'variables' => $variables],
+                'headers' => [($isLegacyKey ? 'Api-Key' : 'Personal-Token') => $apiKey],
+            ]);
+        } catch (ConnectException $e) {
+            throw new OpenCollectiveException(OpenCollectiveException::NETWORK, 'Could not reach Open Collective: '.$e->getMessage(), $e);
+        } catch (RequestException $e) {
+            $status = $e->getResponse()?->getStatusCode();
+            $kind = match ($status) {
+                401     => OpenCollectiveException::UNAUTHORIZED,
+                403     => OpenCollectiveException::FORBIDDEN,
+                404     => OpenCollectiveException::NOT_FOUND,
+                429     => OpenCollectiveException::RATE_LIMITED,
+                default => OpenCollectiveException::API_ERROR,
+            };
+            $body = json_decode((string) $e->getResponse()?->getBody());
+
+            throw new OpenCollectiveException($kind, $body->error->message ?? "Open Collective request failed (HTTP $status)", $e);
+        } catch (GuzzleException $e) {
+            throw new OpenCollectiveException(OpenCollectiveException::NETWORK, 'Open Collective request failed: '.$e->getMessage(), $e);
         }
 
-        if (!isset($json->data->orders)) {
-            return [];
+        $json = json_decode((string) $response->getBody());
+
+        if (!is_object($json)) {
+            throw new OpenCollectiveException(OpenCollectiveException::INVALID_RESPONSE, 'Open Collective returned a response that is not JSON');
         }
 
-        // Filter by status - only return ACTIVE orders for recurring subscriptions
-        // The onlyActiveSubscriptions parameter doesn't seem to filter out CANCELLED orders
-        $orders = collect((array) $json->data->orders->nodes);
+        if (!empty($json->errors)) {
+            $codes = array_map(fn ($error) => $error->extensions->code ?? null, $json->errors);
+            $kind = match (true) {
+                in_array('Unauthorized', $codes, true) => OpenCollectiveException::UNAUTHORIZED,
+                in_array('Forbidden', $codes, true)    => OpenCollectiveException::FORBIDDEN,
+                default                                => OpenCollectiveException::API_ERROR,
+            };
 
-        if ($onlyActive) {
-            $orders = $orders->filter(function ($order) {
-                return ($order->status ?? null) === 'ACTIVE';
-            });
+            throw new OpenCollectiveException($kind, implode("\n", array_map(fn ($error) => $error->message ?? 'Unknown error', $json->errors)));
         }
 
-        return $orders->all();
+        if (!isset($json->data) || !is_object($json->data)) {
+            throw new OpenCollectiveException(OpenCollectiveException::INVALID_RESPONSE, 'Open Collective returned no data');
+        }
+
+        return $json->data;
     }
 }

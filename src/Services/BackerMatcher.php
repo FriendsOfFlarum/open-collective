@@ -27,12 +27,7 @@ class BackerMatcher
      */
     public function matchBackersToUsers(array $backers): Collection
     {
-        $backerEmails = $this->getBackerEmails($backers);
-
-        return User::query()
-            ->where('is_email_confirmed', true)
-            ->whereIn('email', $backerEmails)
-            ->get();
+        return $this->matchBackersOfTypeToUsers($backers);
     }
 
     /**
@@ -78,10 +73,20 @@ class BackerMatcher
     {
         $backerEmails = $this->getBackerEmails($backers);
 
+        if ($backerEmails->isEmpty()) {
+            return new Collection();
+        }
+
+        // Emails are compared lowercased in PHP; query both spellings so the
+        // indexed lookup also matches on case-sensitive databases (PostgreSQL).
+        $rawEmails = collect($backers)->map(fn ($order) => $order->fromAccount->email ?? null)->filter();
+
         return User::query()
             ->where('is_email_confirmed', true)
-            ->whereIn('email', $backerEmails)
-            ->get();
+            ->whereIn('email', $backerEmails->merge($rawEmails)->unique()->values())
+            ->get()
+            ->filter(fn (User $user) => $backerEmails->contains(strtolower($user->email)))
+            ->values();
     }
 
     /**
@@ -89,16 +94,14 @@ class BackerMatcher
      *
      * @param array $backers Array of backer data from Open Collective API (Order objects)
      *
-     * @return Collection<string>
+     * @return Collection<int, lowercase-string&non-falsy-string> Unique
      */
     public function getBackerEmails(array $backers): Collection
     {
         return collect($backers)
-            ->map(function ($order) {
-                // Orders use fromAccount instead of account
-                return $order->fromAccount->email ?? null;
-            })
+            ->map(fn ($order) => isset($order->fromAccount->email) ? strtolower($order->fromAccount->email) : null)
             ->filter()
-            ->unique();
+            ->unique()
+            ->values();
     }
 }

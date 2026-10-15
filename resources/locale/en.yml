@@ -12,7 +12,7 @@ fof-open-collective:
       api_key_help: This authentication method is deprecated. Please consider switching to a Personal Token.
 
       personal_token_label: Personal Token
-      personal_token_help: Create a personal token at <a>https://opencollective.com/applications</a>. This token is used to fetch your backer information from Open Collective.
+      personal_token_help: Create a personal token at <a>https://opencollective.com/applications</a> with the "orders" and "email" scopes, from an account that is an admin of the collective. This token is used to fetch your backer information from Open Collective.
 
       slug_label: Collective Slug
       slug_help: Enter your Open Collective collective slug (the part after opencollective.com/ in your collective URL).

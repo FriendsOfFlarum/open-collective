@@ -55,8 +55,10 @@ After installation, configure the extension in your Flarum admin panel:
 ### 1. Create an Open Collective Personal Token
 
 1. Go to [Open Collective Applications](https://opencollective.com/applications)
-2. Create a new Personal Token
+2. Create a new Personal Token with the **`orders`** and **`email`** scopes
 3. Copy the token (you won't be able to see it again)
+
+The token can only see what its owner can see, so create it from an account that is an **admin of the collective**. Without the `orders` scope the sync fails; without the `email` scope Open Collective hides every backer's email and nobody can be matched.
 
 **Legacy API Keys**: If you have an existing legacy API key, you can continue using it by enabling "Use Legacy Application API Key" in the settings. However, it's recommended to migrate to a Personal Token.
 
@@ -92,6 +94,14 @@ php flarum fof:open-collective:update --dry-run
 ```
 
 This is useful for testing your configuration before letting the extension make real changes to your groups.
+
+#### Force Mode
+
+If Open Collective reports no backers at all while the extension still manages group members, the sync stops without changing anything, because removing everyone is far more likely to be a bad API response than a real change. If your collective really has no backers left, confirm it with:
+
+```bash
+php flarum fof:open-collective:update --force
+```
 
 #### Verbose Output
 
@@ -161,9 +171,9 @@ Dispatched when a user is added to the backers group.
 
 **Properties:**
 - `$user` (Flarum\User\User) - The Flarum user who was added
-- `$backerData` (object|null) - Open Collective backer data including:
+- `$backerData` (object|null) - The backer's Open Collective account:
+  - `id` - Open Collective account ID
   - `email` - Backer's email address
-  - Other fields from the Open Collective API
 
 **Example listener:**
 
@@ -231,9 +241,10 @@ return [
 
 ### Authentication errors
 
-- If using a Personal Token, ensure it was created correctly
+- **"Open Collective rejected the token"**: the token has expired or been revoked. Create a new one.
+- **"The Open Collective token is missing a required scope"**: the token lacks the `orders` or `email` scope. Edit the token's scopes on Open Collective, or create a new one.
+- **"The Open Collective token cannot read backer emails"**: the token lacks the `email` scope.
 - If using a legacy API Key, consider migrating to a Personal Token
-- Check that the token hasn't expired or been revoked
 
 ## Updating
 
