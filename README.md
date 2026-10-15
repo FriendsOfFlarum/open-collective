@@ -136,6 +136,12 @@ php flarum fof:open-collective:update --dry-run -v
 
 The first sync after installing or upgrading records every backer's current status without announcing them as new backers. Only group memberships it restores on that run are recorded.
 
+### Privacy (GDPR)
+
+With the [GDPR](https://docs.flarum.org/extensions/gdpr) extension enabled, the extension's record of a member's backing (their status, when it last changed, and which groups the sync manages for them) is included in their data export, and erased when their account is anonymized or deleted. Erasing it means the sync simply forgets the member: it does not report their backing as ended, so no event fires and no audit entry is written for an erased account.
+
+Backer emails are only read from Open Collective while a sync runs; they are never stored.
+
 ## How User Matching Works
 
 The extension matches Open Collective backers to Flarum users by comparing email addresses. For a backer to be matched:
