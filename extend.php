@@ -11,10 +11,12 @@
 
 namespace FoF\OpenCollective;
 
+use Flarum\Api\Resource\ForumResource;
 use Flarum\Audit\Extend\Audit;
 use Flarum\Extend;
 use Flarum\Gdpr\Extend\UserData;
 use FoF\OpenCollective\Api\Controller\TestConnectionController;
+use FoF\OpenCollective\Api\ForumAttributes;
 use FoF\OpenCollective\Console\UpdateCommand;
 use FoF\OpenCollective\Data\OpenCollectiveBacker;
 use FoF\OpenCollective\Event\AbstractBackerStatusChanged;
@@ -34,6 +36,9 @@ return [
 
     (new Extend\ServiceProvider())
         ->register(SupporterGroupsServiceProvider::class),
+
+    (new Extend\ApiResource(ForumResource::class))
+        ->fields(ForumAttributes::class),
 
     (new Extend\Routes('api'))
         ->post('/fof/open-collective/test-connection', 'fof-open-collective.test-connection', TestConnectionController::class),

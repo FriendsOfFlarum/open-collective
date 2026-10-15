@@ -16,6 +16,7 @@ use FoF\OpenCollective\BackerStatus;
 use FoF\OpenCollective\Event\RecurringBackingStopped;
 use FoF\OpenCollective\Services\BackerGroupClaims;
 use FoF\OpenCollective\Services\BackerSynchronizer;
+use FoF\OpenCollective\Services\SupporterCounts;
 use FoF\OpenCollective\Services\SyncStatus;
 use FoF\OpenCollective\Tests\fixtures\FakeOpenCollectiveProvider;
 use FoF\OpenCollective\Tests\fixtures\FakeOtherSupporterSource;
@@ -540,5 +541,55 @@ class UpdateCommandTest extends SyncTestCase
         $this->sync(['--dry-run' => true]);
 
         $this->assertNull($this->lastSync());
+    }
+
+    /** @return array<string, mixed>|null */
+    protected function storedCounts(): ?array
+    {
+        return json_decode($this->database()->table('settings')->where('key', SupporterCounts::SETTING)->value('value') ?? 'null', true);
+    }
+
+    protected function incognitoAndUnmatched(): void
+    {
+        FakeOpenCollectiveProvider::backers(
+            monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com'), $this->order('ACTIVE', 'MONTHLY', 'stranger@example.org')],
+            onetime: [$this->order('PAID', 'ONETIME', null, true), $this->order('PAID', 'ONETIME', null), $this->order('PAID', 'ONETIME', 'bob@example.com')]
+        );
+    }
+
+    #[Test]
+    public function a_sync_records_counts_of_incognito_and_unmatched_backers(): void
+    {
+        $this->incognitoAndUnmatched();
+
+        $output = $this->sync();
+
+        // Incognito: the one incognito one-time backer. Unmatched: the stranger, and the email-less one-time backer.
+        $this->assertSame(['private' => ['recurring' => 0, 'onetime' => 1], 'unmatched' => ['recurring' => 1, 'onetime' => 1]], $this->storedCounts());
+        $this->assertStringContainsString('incognito backers: 0 recurring, 1 one-time', $output);
+    }
+
+    #[Test]
+    public function the_counts_are_public_forum_attributes(): void
+    {
+        $this->setting(SupporterCounts::SETTING, json_encode(['private' => ['recurring' => 1, 'onetime' => 2], 'unmatched' => ['recurring' => 3, 'onetime' => 4]]));
+
+        $response = $this->send($this->request('GET', '/api'));
+        $attributes = json_decode((string) $response->getBody(), true)['data']['attributes'];
+
+        $this->assertSame(1, $attributes['openCollectivePrivateRecurring']);
+        $this->assertSame(2, $attributes['openCollectivePrivateOnetime']);
+        $this->assertSame(3, $attributes['openCollectiveUnmatchedRecurring']);
+        $this->assertSame(4, $attributes['openCollectiveUnmatchedOnetime']);
+    }
+
+    #[Test]
+    public function a_dry_run_does_not_record_counts(): void
+    {
+        $this->incognitoAndUnmatched();
+
+        $this->sync(['--dry-run' => true]);
+
+        $this->assertNull($this->storedCounts());
     }
 }
