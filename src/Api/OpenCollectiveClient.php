@@ -89,6 +89,74 @@ class OpenCollectiveClient
     }
 
     /**
+     * Check a token can do everything the sync needs, cheaply: authenticate, find
+     * the collective, read orders (`orders` scope) and see emails (`email` scope).
+     * A collective lookup alone succeeds even when the orders query is forbidden.
+     *
+     * @throws OpenCollectiveException
+     *
+     * @return array{account: string|null, collective: string, orders: int, emailsVisible: bool|null} emailsVisible is null when there are no orders to check
+     */
+    public function testConnection(string $apiKey, string $slug, bool $isLegacyKey = false): array
+    {
+        $data = $this->query($apiKey, $isLegacyKey, '
+            query test($slug: String) {
+              me {
+                slug
+              }
+              collective(slug: $slug) {
+                name
+              }
+            }
+        ', ['slug' => $slug]);
+
+        if (!isset($data->collective)) {
+            throw new OpenCollectiveException(OpenCollectiveException::NOT_FOUND, "Collective '$slug' not found");
+        }
+
+        // A sample, not a page: incognito backers legitimately have no email, so
+        // judging email access from a single order would be unreliable.
+        $orders = $this->query($apiKey, $isLegacyKey, '
+            query orders($slug: String!) {
+              orders(account: { slug: $slug }, filter: INCOMING, limit: 25) {
+                totalCount
+                nodes {
+                  fromAccount {
+                    ... on Individual {
+                      email
+                    }
+                    ... on Organization {
+                      email
+                    }
+                  }
+                }
+              }
+            }
+        ', ['slug' => $slug]);
+
+        if (!isset($orders->orders->nodes, $orders->orders->totalCount)) {
+            throw new OpenCollectiveException(OpenCollectiveException::INVALID_RESPONSE, 'Open Collective returned no orders data');
+        }
+
+        $nodes = (array) $orders->orders->nodes;
+        $emailsVisible = $nodes ? (bool) array_filter($nodes, fn ($order) => !empty($order->fromAccount->email)) : null;
+
+        if ($emailsVisible === false) {
+            throw new OpenCollectiveException(
+                OpenCollectiveException::EMAILS_HIDDEN,
+                'Open Collective returned no backer emails. The token needs the "email" scope.'
+            );
+        }
+
+        return [
+            'account'       => $data->me->slug ?? null,
+            'collective'    => $data->collective->name,
+            'orders'        => (int) $orders->orders->totalCount,
+            'emailsVisible' => $emailsVisible,
+        ];
+    }
+
+    /**
      * Reduce orders to one per person (by email, else account ID). An active
      * recurring order wins, so a cancelled subscription never hides a live one.
      *

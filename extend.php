@@ -13,6 +13,7 @@ namespace FoF\OpenCollective;
 
 use Flarum\Audit\Extend\Audit;
 use Flarum\Extend;
+use FoF\OpenCollective\Api\Controller\TestConnectionController;
 use FoF\OpenCollective\Console\UpdateCommand;
 use FoF\OpenCollective\Event\AbstractBackerStatusChanged;
 use FoF\OpenCollective\Event\BackerGroupsChanged;
@@ -26,6 +27,9 @@ return [
     (new Extend\Frontend('admin'))
         ->js(__DIR__.'/js/dist/admin.js'),
     new Extend\Locales(__DIR__.'/resources/locale'),
+
+    (new Extend\Routes('api'))
+        ->post('/fof/open-collective/test-connection', 'fof-open-collective.test-connection', TestConnectionController::class),
 
     (new Extend\Console())
         ->command(UpdateCommand::class)

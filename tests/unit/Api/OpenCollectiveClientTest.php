@@ -285,4 +285,73 @@ class OpenCollectiveClientTest extends TestCase
     {
         $this->assertFailsWith(OpenCollectiveException::INVALID_RESPONSE, [$this->collective(), $this->json(['data' => ['orders' => null]])]);
     }
+
+    protected function connectionCheck(): Response
+    {
+        return $this->json(['data' => ['me' => ['slug' => 'token-owner'], 'collective' => ['name' => 'Test Collective']]]);
+    }
+
+    protected function sample(array $emails, ?int $totalCount = null): Response
+    {
+        return $this->json(['data' => ['orders' => [
+            'totalCount' => $totalCount ?? count($emails),
+            'nodes'      => array_map(fn ($email) => ['fromAccount' => ['email' => $email]], $emails),
+        ]]]);
+    }
+
+    #[Test]
+    public function a_working_token_reports_its_owner_collective_and_orders(): void
+    {
+        $result = $this->client([$this->connectionCheck(), $this->sample([null, 'backer@example.com'], 169)])->testConnection('token', 'test');
+
+        $this->assertSame(['account' => 'token-owner', 'collective' => 'Test Collective', 'orders' => 169, 'emailsVisible' => true], $result);
+        $this->assertSame('token', $this->history[1]['request']->getHeaderLine('Personal-Token'));
+    }
+
+    #[Test]
+    public function a_collective_without_orders_cannot_confirm_email_access(): void
+    {
+        $result = $this->client([$this->connectionCheck(), $this->sample([])])->testConnection('token', 'test');
+
+        $this->assertNull($result['emailsVisible']);
+        $this->assertSame(0, $result['orders']);
+    }
+
+    protected function assertConnectionFailsWith(string $kind, array $responses): void
+    {
+        try {
+            $this->client($responses)->testConnection('token', 'test');
+            $this->fail("Expected an OpenCollectiveException of kind $kind");
+        } catch (OpenCollectiveException $e) {
+            $this->assertSame($kind, $e->kind);
+        }
+    }
+
+    #[Test]
+    public function the_connection_test_spots_hidden_emails(): void
+    {
+        $this->assertConnectionFailsWith(OpenCollectiveException::EMAILS_HIDDEN, [$this->connectionCheck(), $this->sample([null, null], 169)]);
+    }
+
+    #[Test]
+    public function the_connection_test_spots_a_missing_orders_scope(): void
+    {
+        // The collective lookup succeeds with such a token; only the orders query fails.
+        $this->assertConnectionFailsWith(OpenCollectiveException::FORBIDDEN, [
+            $this->connectionCheck(),
+            $this->json(['errors' => [['message' => 'The Personal Token is not allowed for operations in scope "orders".', 'extensions' => ['code' => 'Forbidden']]], 'data' => null]),
+        ]);
+    }
+
+    #[Test]
+    public function the_connection_test_spots_a_rejected_token(): void
+    {
+        $this->assertConnectionFailsWith(OpenCollectiveException::UNAUTHORIZED, [$this->json(['error' => ['message' => 'Invalid Personal Token (Api Key)']], 401)]);
+    }
+
+    #[Test]
+    public function the_connection_test_spots_an_unknown_collective(): void
+    {
+        $this->assertConnectionFailsWith(OpenCollectiveException::NOT_FOUND, [$this->json(['data' => ['me' => ['slug' => 'token-owner'], 'collective' => null]])]);
+    }
 }

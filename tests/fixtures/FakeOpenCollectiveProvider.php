@@ -16,6 +16,7 @@ use FoF\OpenCollective\Api\OpenCollectiveClient;
 use GuzzleHttp\Client;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Middleware;
 use GuzzleHttp\Psr7\Response;
 
 /**
@@ -27,9 +28,29 @@ class FakeOpenCollectiveProvider extends AbstractServiceProvider
     /** @var array<Response|\Throwable> */
     public static array $responses = [];
 
+    /** @var array<int, array{request: \Psr\Http\Message\RequestInterface}> */
+    public static array $history = [];
+
     public static function reset(array $responses = []): void
     {
         self::$responses = $responses;
+        self::$history = [];
+    }
+
+    /**
+     * Queue a successful connection test: the token owner and collective, then a
+     * sample of orders.
+     *
+     * @param array<int, string|null> $emails One order per entry
+     */
+    public static function connection(array $emails = ['backer@example.com'], int $totalCount = 1): void
+    {
+        $json = fn (array $body) => new Response(200, ['Content-Type' => 'application/json'], json_encode($body));
+
+        self::reset([
+            $json(['data' => ['me' => ['slug' => 'admin-account'], 'collective' => ['name' => 'Test Collective']]]),
+            $json(['data' => ['orders' => ['totalCount' => $totalCount, 'nodes' => array_map(fn ($email) => ['fromAccount' => ['email' => $email]], $emails)]]]),
+        ]);
     }
 
     /**
@@ -55,7 +76,10 @@ class FakeOpenCollectiveProvider extends AbstractServiceProvider
     public function register(): void
     {
         $this->container->singleton(OpenCollectiveClient::class, function () {
-            return new OpenCollectiveClient(new Client(['handler' => HandlerStack::create(new MockHandler(self::$responses))]));
+            $stack = HandlerStack::create(new MockHandler(self::$responses));
+            $stack->push(Middleware::history(self::$history));
+
+            return new OpenCollectiveClient(new Client(['handler' => $stack]));
         });
     }
 }
