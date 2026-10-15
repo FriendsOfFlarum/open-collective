@@ -16,9 +16,9 @@ use FoF\OpenCollective\BackerStatus;
 use FoF\OpenCollective\Event\RecurringBackingStopped;
 use FoF\OpenCollective\Services\BackerGroupClaims;
 use FoF\OpenCollective\Services\BackerSynchronizer;
-use FoF\OpenCollective\Tests\fixtures\FakeOtherSupporterSource;
 use FoF\OpenCollective\Services\SyncStatus;
 use FoF\OpenCollective\Tests\fixtures\FakeOpenCollectiveProvider;
+use FoF\OpenCollective\Tests\fixtures\FakeOtherSupporterSource;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\Attributes\Test;
 

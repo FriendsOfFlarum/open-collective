@@ -15,14 +15,14 @@ use Carbon\Carbon;
 use Flarum\Group\Group;
 use Flarum\Settings\SettingsRepositoryInterface;
 use Flarum\User\User;
-use FoF\OpenCollective\Event\OneTimeBackingStarted;
-use FoF\OpenCollective\Event\RecurringBackingStarted;
-use FoF\OpenCollective\Event\RecurringBackingStopped;
+use FoF\OpenCollective\Backer;
+use FoF\OpenCollective\BackerStatus;
 use FoF\OpenCollective\Event\BackerGroupsChanged;
 use FoF\OpenCollective\Event\BackerMembershipAdopted;
 use FoF\OpenCollective\Event\BackingEnded;
-use FoF\OpenCollective\Backer;
-use FoF\OpenCollective\BackerStatus;
+use FoF\OpenCollective\Event\OneTimeBackingStarted;
+use FoF\OpenCollective\Event\RecurringBackingStarted;
+use FoF\OpenCollective\Event\RecurringBackingStopped;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Collection;
@@ -196,9 +196,9 @@ class BackerSynchronizer
 
             if ($statusChanged && !$baseline) {
                 $event = match (true) {
-                    $current === BackerStatus::Recurring                                         => RecurringBackingStarted::class,
-                    $previous === BackerStatus::Recurring && $current === BackerStatus::OneTime => RecurringBackingStopped::class,
-                    $current === BackerStatus::OneTime                                           => OneTimeBackingStarted::class,
+                    $current === BackerStatus::Recurring                                          => RecurringBackingStarted::class,
+                    $previous === BackerStatus::Recurring && $current === BackerStatus::OneTime   => RecurringBackingStopped::class,
+                    $current === BackerStatus::OneTime                                            => OneTimeBackingStarted::class,
                     default                                                                       => BackingEnded::class,
                 };
 
