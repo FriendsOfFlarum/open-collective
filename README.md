@@ -212,6 +212,19 @@ return [
 - The first sync after installing or upgrading records statuses without status events, so existing backers are not announced as new. Group repairs on that run still fire `BackerGroupsChanged`.
 - Group memberships are only removed where the extension owns them (it added or adopted them) and no other supporter source still wants them. A hand-added member is adopted once their backing justifies the group.
 
+### Backer counts on the API
+
+A supporters page can only list backers who match a forum account. To show the rest, the forum API resource (`/api`, `app.forum.attribute(...)`) carries four public counts, refreshed by each sync:
+
+| Attribute | Counts |
+|---|---|
+| `openCollectivePrivateRecurring` | Incognito backers with an active recurring contribution |
+| `openCollectivePrivateOnetime` | Incognito backers who contributed once or in the past |
+| `openCollectiveUnmatchedRecurring` | Other recurring backers with no matching forum account |
+| `openCollectiveUnmatchedOnetime` | Other one-time or past backers with no matching forum account |
+
+Nothing about an incognito backer is stored.
+
 ### Sharing groups with other supporter sources
 
 Supporter sources that manage the same groups ask each other before removing anyone. Each registers an invokable under the `fof.supporter-groups` container tag that takes user IDs and a group ID and returns the subset of those users it wants in that group:
