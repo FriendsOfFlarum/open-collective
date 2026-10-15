@@ -54,3 +54,12 @@ flarum-audit:
         onetime_started: "{username} became a one-time backer on Open Collective. Groups: {old_groups} → {new_groups}"
         backing_ended: "{username} is no longer an Open Collective backer. Groups: {old_groups} → {new_groups}"
         groups_changed: "Open Collective sync changed {username}'s groups from {old_groups} to {new_groups}"
+
+# Descriptions on flarum/gdpr's GDPR Integrations page, when it is enabled.
+flarum-gdpr:
+  lib:
+    data:
+      opencollectivebacker:
+        export_description: Exports the member's Open Collective backer status, when it last changed, and the groups the sync manages for them.
+        anonymize_description: "=> flarum-gdpr.lib.data.opencollectivebacker.delete_description"
+        delete_description: Deletes the member's Open Collective backer record, so the sync forgets them without announcing the end of their backing.

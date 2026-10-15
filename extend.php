@@ -13,8 +13,10 @@ namespace FoF\OpenCollective;
 
 use Flarum\Audit\Extend\Audit;
 use Flarum\Extend;
+use Flarum\Gdpr\Extend\UserData;
 use FoF\OpenCollective\Api\Controller\TestConnectionController;
 use FoF\OpenCollective\Console\UpdateCommand;
+use FoF\OpenCollective\Data\OpenCollectiveBacker;
 use FoF\OpenCollective\Event\AbstractBackerStatusChanged;
 use FoF\OpenCollective\Event\BackerGroupsChanged;
 use FoF\OpenCollective\Event\BackingEnded;
@@ -63,5 +65,9 @@ return [
                         'new_group_ids' => $event->newGroupIds,
                     ]),
             ];
-        }),
+        })
+        ->whenExtensionEnabled('flarum-gdpr', fn () => [
+            (new UserData())
+                ->addType(OpenCollectiveBacker::class),
+        ]),
 ];

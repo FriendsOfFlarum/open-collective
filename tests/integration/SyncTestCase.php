@@ -11,6 +11,7 @@
 
 namespace FoF\OpenCollective\Tests\integration;
 
+use Carbon\Carbon;
 use Flarum\Extend;
 use Flarum\Group\Group;
 use Flarum\Testing\integration\ConsoleTestCase;
@@ -85,7 +86,7 @@ abstract class SyncTestCase extends ConsoleTestCase
     protected function known(int $userId, ?BackerStatus $status, array $managedGroupIds): void
     {
         $this->prepareDatabase([
-            Backer::class => [['user_id' => $userId, 'status' => $status?->value, 'managed_group_ids' => $managedGroupIds]],
+            Backer::class => [['user_id' => $userId, 'status' => $status?->value, 'managed_group_ids' => $managedGroupIds, 'status_changed_at' => $status ? Carbon::now() : null]],
         ]);
     }
 
