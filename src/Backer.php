@@ -40,6 +40,9 @@ class Backer extends AbstractModel
 
     public $timestamps = false;
 
+    /** Lets test fixtures upsert by user rather than by every column (PostgreSQL cannot compare the JSON column). */
+    public ?array $uniqueKeys = ['user_id'];
+
     protected $fillable = ['user_id'];
 
     protected $casts = [
