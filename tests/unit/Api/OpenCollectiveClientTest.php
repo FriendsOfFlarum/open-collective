@@ -11,342 +11,278 @@
 
 namespace FoF\OpenCollective\Tests\Unit\Api;
 
-use Exception;
 use FoF\OpenCollective\Api\OpenCollectiveClient;
+use FoF\OpenCollective\Api\OpenCollectiveException;
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Handler\MockHandler;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Middleware;
+use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Psr7\Response;
+use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * Runs the client against a real Guzzle client with queued responses, so HTTP
+ * error handling (http_errors, connection failures) behaves as in production.
+ */
 class OpenCollectiveClientTest extends TestCase
 {
-    public function testFetchBackersSuccess()
+    /** @var array<int, array{request: Request}> */
+    protected array $history = [];
+
+    /**
+     * @param array<Response|\Throwable> $responses
+     */
+    protected function client(array $responses): OpenCollectiveClient
     {
-        // Mock response for collective query
-        $collectiveResponse = json_encode([
-            'data' => [
-                'collective' => [
-                    'name' => 'Test Collective',
-                    'slug' => 'test-collective',
-                ],
-            ],
-        ]);
+        $this->history = [];
+        $stack = HandlerStack::create(new MockHandler($responses));
+        $stack->push(Middleware::history($this->history));
 
-        // Mock response for MONTHLY orders (includes both ACTIVE and CANCELLED)
-        $monthlyResponse = json_encode([
-            'data' => [
-                'orders' => [
-                    'nodes' => [
-                        [
-                            'status'      => 'ACTIVE',
-                            'frequency'   => 'MONTHLY',
-                            'tier'        => ['name' => 'Backer'],
-                            'fromAccount' => [
-                                'id'    => 'account-1',
-                                'email' => 'monthly@example.com',
-                            ],
-                        ],
-                        [
-                            'status'      => 'CANCELLED',
-                            'frequency'   => 'MONTHLY',
-                            'tier'        => ['name' => 'Backer'],
-                            'fromAccount' => [
-                                'id'    => 'account-2',
-                                'email' => 'cancelled@example.com',
-                            ],
-                        ],
-                    ],
-                ],
-            ],
-        ]);
-
-        // Mock response for YEARLY orders
-        $yearlyResponse = json_encode([
-            'data' => [
-                'orders' => [
-                    'nodes' => [],
-                ],
-            ],
-        ]);
-
-        // Mock response for ONETIME orders
-        $onetimeResponse = json_encode([
-            'data' => [
-                'orders' => [
-                    'nodes' => [
-                        [
-                            'status'      => 'PAID',
-                            'frequency'   => 'ONETIME',
-                            'tier'        => ['name' => 'Backer'],
-                            'fromAccount' => [
-                                'id'    => 'account-3',
-                                'email' => 'onetime@example.com',
-                            ],
-                        ],
-                    ],
-                ],
-            ],
-        ]);
-
-        // Mock Guzzle client
-        $mockClient = $this->createMock(Client::class);
-
-        $callCount = 0;
-        $mockClient->expects($this->exactly(4))
-            ->method('post')
-            ->willReturnCallback(function ($url, $options) use (&$callCount, $collectiveResponse, $monthlyResponse, $yearlyResponse, $onetimeResponse) {
-                $callCount++;
-
-                // First call: collective query
-                if ($callCount === 1) {
-                    $this->assertEquals('https://api.opencollective.com/graphql/v2', $url);
-                    $this->assertArrayHasKey('headers', $options);
-                    $this->assertArrayHasKey('Personal-Token', $options['headers']);
-
-                    return new Response(200, [], $collectiveResponse);
-                }
-
-                // Second call: MONTHLY orders
-                if ($callCount === 2) {
-                    $this->assertEquals(['MONTHLY'], $options['json']['variables']['frequency']);
-
-                    return new Response(200, [], $monthlyResponse);
-                }
-
-                // Third call: YEARLY orders
-                if ($callCount === 3) {
-                    $this->assertEquals(['YEARLY'], $options['json']['variables']['frequency']);
-
-                    return new Response(200, [], $yearlyResponse);
-                }
-
-                // Fourth call: ONETIME orders
-                if ($callCount === 4) {
-                    $this->assertEquals(['ONETIME'], $options['json']['variables']['frequency']);
-
-                    return new Response(200, [], $onetimeResponse);
-                }
-
-                throw new \Exception('Unexpected call count: '.$callCount);
-            });
-
-        // Test
-        $client = new OpenCollectiveClient($mockClient);
-        $result = $client->fetchBackers('test-token', 'test-collective', false);
-
-        $this->assertEquals('Test Collective', $result['collective']);
-        // Should have 3 unique backers (1 ACTIVE monthly, 1 CANCELLED monthly, 1 onetime)
-        $this->assertCount(3, $result['backers']);
-        $this->assertEquals('monthly@example.com', $result['backers'][0]->fromAccount->email);
-        $this->assertEquals('cancelled@example.com', $result['backers'][1]->fromAccount->email);
-        $this->assertEquals('onetime@example.com', $result['backers'][2]->fromAccount->email);
+        return new OpenCollectiveClient(new Client(['handler' => $stack]));
     }
 
-    public function testFetchBackersWithLegacyKey()
+    protected function json(array $body, int $status = 200): Response
     {
-        // Mock response for collective query
-        $collectiveResponse = json_encode([
-            'data' => [
-                'collective' => [
-                    'name' => 'Test Collective',
-                    'slug' => 'test',
-                ],
-            ],
-        ]);
-
-        // Mock empty responses for orders
-        $emptyOrdersResponse = json_encode([
-            'data' => [
-                'orders' => [
-                    'nodes' => [],
-                ],
-            ],
-        ]);
-
-        $mockClient = $this->createMock(Client::class);
-
-        $callCount = 0;
-        $mockClient->expects($this->exactly(4))
-            ->method('post')
-            ->willReturnCallback(function ($url, $options) use (&$callCount, $collectiveResponse, $emptyOrdersResponse) {
-                $callCount++;
-
-                // First call should use Api-Key header
-                if ($callCount === 1) {
-                    $this->assertArrayHasKey('headers', $options);
-                    $this->assertArrayHasKey('Api-Key', $options['headers']);
-
-                    return new Response(200, [], $collectiveResponse);
-                }
-
-                // Subsequent calls for orders
-                return new Response(200, [], $emptyOrdersResponse);
-            });
-
-        $client = new OpenCollectiveClient($mockClient);
-        $result = $client->fetchBackers('legacy-key', 'test', true);
-
-        $this->assertEquals('Test Collective', $result['collective']);
+        return new Response($status, ['Content-Type' => 'application/json'], json_encode($body));
     }
 
-    public function testFetchBackersThrowsExceptionOnGraphQLError()
+    protected function collective(): Response
     {
-        $mockResponse = json_encode([
-            'errors' => [
-                ['message' => 'Invalid token'],
-            ],
-        ]);
-
-        $mockClient = $this->createMock(Client::class);
-        $mockClient->method('post')
-            ->willReturn(new Response(200, [], $mockResponse));
-
-        $client = new OpenCollectiveClient($mockClient);
-
-        $this->expectException(Exception::class);
-        $this->expectExceptionMessage('Invalid token');
-
-        $client->fetchBackers('invalid-token', 'test', false);
+        return $this->json(['data' => ['collective' => ['name' => 'Test Collective', 'slug' => 'test']]]);
     }
 
-    public function testFetchBackersThrowsExceptionOnInvalidSlug()
+    protected function orders(array $nodes, ?int $totalCount = null): Response
     {
-        $mockResponse = json_encode([
-            'data' => [],
-        ]);
-
-        $mockClient = $this->createMock(Client::class);
-        $mockClient->method('post')
-            ->willReturn(new Response(200, [], $mockResponse));
-
-        $client = new OpenCollectiveClient($mockClient);
-
-        $this->expectException(Exception::class);
-        $this->expectExceptionMessage("Collective 'nonexistent' not found");
-
-        $client->fetchBackers('test-token', 'nonexistent', false);
+        return $this->json(['data' => ['orders' => ['totalCount' => $totalCount ?? count($nodes), 'nodes' => $nodes]]]);
     }
 
-    public function testFetchBackersDeduplicatesByEmail()
+    protected function order(string $status, string $frequency, ?string $email, ?string $accountId = null): array
     {
-        $collectiveResponse = json_encode([
-            'data' => [
-                'collective' => [
-                    'name' => 'Test Collective',
-                    'slug' => 'test',
-                ],
-            ],
-        ]);
+        return [
+            'status'      => $status,
+            'frequency'   => $frequency,
+            'tier'        => ['name' => 'Backer'],
+            'fromAccount' => ['id' => $accountId ?? 'acct-'.($email ?? uniqid()), 'email' => $email],
+        ];
+    }
 
-        // Multiple orders from same person (same email)
-        $monthlyResponse = json_encode([
-            'data' => [
-                'orders' => [
-                    'nodes' => [
-                        [
-                            'status'      => 'ACTIVE',
-                            'frequency'   => 'MONTHLY',
-                            'fromAccount' => [
-                                'id'    => 'account-1',
-                                'email' => 'same@example.com',
-                            ],
-                        ],
-                        [
-                            'status'      => 'CANCELLED',
-                            'frequency'   => 'MONTHLY',
-                            'fromAccount' => [
-                                'id'    => 'account-1',
-                                'email' => 'same@example.com',
-                            ],
-                        ],
-                    ],
-                ],
-            ],
-        ]);
+    /** @return array<int, array<string, mixed>> */
+    protected function sentBodies(): array
+    {
+        return array_map(fn ($entry) => json_decode((string) $entry['request']->getBody(), true), $this->history);
+    }
 
-        $emptyOrdersResponse = json_encode([
-            'data' => [
-                'orders' => [
-                    'nodes' => [],
-                ],
-            ],
-        ]);
+    #[Test]
+    public function it_returns_contributing_backers_with_the_collective_name(): void
+    {
+        $result = $this->client([
+            $this->collective(),
+            $this->orders([$this->order('ACTIVE', 'MONTHLY', 'monthly@example.com'), $this->order('CANCELLED', 'MONTHLY', 'cancelled@example.com')]),
+            $this->orders([]),
+            $this->orders([$this->order('PAID', 'ONETIME', 'onetime@example.com')]),
+        ])->fetchBackers('token', 'test');
 
-        $mockClient = $this->createMock(Client::class);
-        $mockClient->expects($this->exactly(4))
-            ->method('post')
-            ->willReturnOnConsecutiveCalls(
-                new Response(200, [], $collectiveResponse),
-                new Response(200, [], $monthlyResponse),
-                new Response(200, [], $emptyOrdersResponse),
-                new Response(200, [], $emptyOrdersResponse)
-            );
+        $this->assertSame('Test Collective', $result['collective']);
+        $this->assertEqualsCanonicalizing(
+            ['monthly@example.com', 'cancelled@example.com', 'onetime@example.com'],
+            array_map(fn ($backer) => $backer->fromAccount->email, $result['backers'])
+        );
+    }
 
-        $client = new OpenCollectiveClient($mockClient);
-        $result = $client->fetchBackers('test-token', 'test', false);
+    #[Test]
+    public function every_request_carries_the_personal_token_and_slug(): void
+    {
+        $this->client([$this->collective(), $this->orders([]), $this->orders([]), $this->orders([])])->fetchBackers('secret-token', 'my-collective');
 
-        // Should only return 1 backer (deduplicated by email)
+        $this->assertCount(4, $this->history);
+
+        foreach ($this->history as $entry) {
+            $this->assertSame('secret-token', $entry['request']->getHeaderLine('Personal-Token'));
+            $this->assertFalse($entry['request']->hasHeader('Api-Key'));
+        }
+
+        foreach ($this->sentBodies() as $body) {
+            $this->assertSame('my-collective', $body['variables']['slug']);
+        }
+
+        $this->assertSame([['MONTHLY'], ['YEARLY'], ['ONETIME']], array_map(fn ($body) => $body['variables']['frequency'], array_slice($this->sentBodies(), 1)));
+    }
+
+    #[Test]
+    public function a_legacy_key_is_sent_as_api_key_on_every_request(): void
+    {
+        $this->client([$this->collective(), $this->orders([]), $this->orders([]), $this->orders([])])->fetchBackers('legacy-key', 'test', true);
+
+        foreach ($this->history as $entry) {
+            $this->assertSame('legacy-key', $entry['request']->getHeaderLine('Api-Key'));
+            $this->assertFalse($entry['request']->hasHeader('Personal-Token'));
+        }
+    }
+
+    #[Test]
+    public function orders_beyond_the_first_page_are_fetched(): void
+    {
+        $firstPage = array_map(fn ($i) => $this->order('PAID', 'ONETIME', "backer$i@example.com"), range(1, 100));
+        $secondPage = array_map(fn ($i) => $this->order('PAID', 'ONETIME', "backer$i@example.com"), range(101, 113));
+
+        $result = $this->client([
+            $this->collective(),
+            $this->orders([]),
+            $this->orders([]),
+            $this->orders($firstPage, 113),
+            $this->orders($secondPage, 113),
+        ])->fetchBackers('token', 'test');
+
+        $this->assertCount(113, $result['backers']);
+        $this->assertSame([0, 100], array_map(fn ($body) => $body['variables']['offset'], array_slice($this->sentBodies(), 3)));
+        $this->assertSame(100, $this->sentBodies()[3]['variables']['limit']);
+    }
+
+    #[Test]
+    public function orders_that_never_paid_are_not_backers(): void
+    {
+        $result = $this->client([
+            $this->collective(),
+            $this->orders([]),
+            $this->orders([]),
+            $this->orders([
+                $this->order('PAID', 'ONETIME', 'paid@example.com'),
+                $this->order('ERROR', 'ONETIME', 'error@example.com'),
+                $this->order('EXPIRED', 'ONETIME', 'expired@example.com'),
+                $this->order('REQUIRE_CLIENT_CONFIRMATION', 'ONETIME', 'pending@example.com'),
+            ]),
+        ])->fetchBackers('token', 'test');
+
+        $this->assertSame(['paid@example.com'], array_map(fn ($backer) => $backer->fromAccount->email, $result['backers']));
+    }
+
+    #[Test]
+    public function an_active_subscription_wins_over_a_cancelled_one_for_the_same_person(): void
+    {
+        $result = $this->client([
+            $this->collective(),
+            $this->orders([$this->order('CANCELLED', 'MONTHLY', 'Person@Example.com', 'acct-1')]),
+            $this->orders([$this->order('ACTIVE', 'YEARLY', 'person@example.com', 'acct-1')]),
+            $this->orders([$this->order('PAID', 'ONETIME', 'person@example.com', 'acct-1')]),
+        ])->fetchBackers('token', 'test');
+
         $this->assertCount(1, $result['backers']);
-        $this->assertEquals('same@example.com', $result['backers'][0]->fromAccount->email);
+        $this->assertSame('YEARLY', $result['backers'][0]->frequency);
+        $this->assertSame('ACTIVE', $result['backers'][0]->status);
     }
 
-    public function testFetchBackersDeduplicatesByAccountId()
+    #[Test]
+    public function backers_without_an_email_are_kept_once_per_account(): void
     {
-        $collectiveResponse = json_encode([
-            'data' => [
-                'collective' => [
-                    'name' => 'Test Collective',
-                    'slug' => 'test',
-                ],
-            ],
+        $result = $this->client([
+            $this->collective(),
+            $this->orders([]),
+            $this->orders([]),
+            $this->orders([
+                $this->order('PAID', 'ONETIME', 'known@example.com'),
+                $this->order('PAID', 'ONETIME', null, 'incognito'),
+                $this->order('PAID', 'ONETIME', null, 'incognito'),
+            ]),
+        ])->fetchBackers('token', 'test');
+
+        $this->assertCount(2, $result['backers']);
+    }
+
+    #[Test]
+    public function a_collective_with_no_orders_has_no_backers(): void
+    {
+        $result = $this->client([$this->collective(), $this->orders([]), $this->orders([]), $this->orders([])])->fetchBackers('token', 'test');
+
+        $this->assertSame([], $result['backers']);
+    }
+
+    #[Test]
+    public function orders_without_any_email_mean_the_token_lacks_the_email_scope(): void
+    {
+        $this->assertFailsWith(OpenCollectiveException::EMAILS_HIDDEN, [
+            $this->collective(),
+            $this->orders([$this->order('ACTIVE', 'MONTHLY', null)]),
+            $this->orders([]),
+            $this->orders([$this->order('PAID', 'ONETIME', null)]),
+        ], '"email" scope');
+    }
+
+    /**
+     * @param array<Response|\Throwable> $responses
+     */
+    protected function assertFailsWith(string $kind, array $responses, ?string $message = null): void
+    {
+        try {
+            $this->client($responses)->fetchBackers('token', 'test');
+            $this->fail("Expected an OpenCollectiveException of kind $kind");
+        } catch (OpenCollectiveException $e) {
+            $this->assertSame($kind, $e->kind);
+
+            if ($message !== null) {
+                $this->assertStringContainsString($message, $e->getMessage());
+            }
+        }
+    }
+
+    #[Test]
+    public function a_rejected_token_is_unauthorized(): void
+    {
+        $this->assertFailsWith(
+            OpenCollectiveException::UNAUTHORIZED,
+            [$this->json(['error' => ['code' => 401, 'type' => 'unauthorized', 'message' => 'Invalid Personal Token (Api Key)']], 401)],
+            'Invalid Personal Token'
+        );
+    }
+
+    #[Test]
+    public function a_token_missing_the_orders_scope_is_forbidden(): void
+    {
+        // The shape Open Collective returns: HTTP 200, a Forbidden error code, null data.
+        $this->assertFailsWith(OpenCollectiveException::FORBIDDEN, [
+            $this->collective(),
+            $this->json([
+                'errors' => [[
+                    'message'    => 'The Personal Token is not allowed for operations in scope "orders".',
+                    'path'       => ['orders'],
+                    'extensions' => ['code' => 'Forbidden'],
+                ]],
+                'data' => null,
+            ]),
+        ], 'scope "orders"');
+    }
+
+    #[Test]
+    public function an_unknown_collective_is_not_found(): void
+    {
+        $this->assertFailsWith(OpenCollectiveException::NOT_FOUND, [$this->json(['data' => ['collective' => null]])], "'test'");
+    }
+
+    #[Test]
+    public function a_rate_limited_request_is_reported_as_such(): void
+    {
+        $this->assertFailsWith(OpenCollectiveException::RATE_LIMITED, [$this->json(['error' => ['message' => 'Too many requests']], 429)]);
+    }
+
+    #[Test]
+    public function an_unreachable_api_is_a_network_failure(): void
+    {
+        $this->assertFailsWith(OpenCollectiveException::NETWORK, [
+            new ConnectException('Connection timed out', new Request('POST', 'https://api.opencollective.com/graphql/v2')),
         ]);
+    }
 
-        // Multiple orders from same person without email (deduplicate by account ID)
-        $onetimeResponse = json_encode([
-            'data' => [
-                'orders' => [
-                    'nodes' => [
-                        [
-                            'status'      => 'PAID',
-                            'frequency'   => 'ONETIME',
-                            'fromAccount' => [
-                                'id' => 'account-1',
-                            ],
-                        ],
-                        [
-                            'status'      => 'ERROR',
-                            'frequency'   => 'ONETIME',
-                            'fromAccount' => [
-                                'id' => 'account-1',
-                            ],
-                        ],
-                    ],
-                ],
-            ],
-        ]);
+    #[Test]
+    public function a_body_that_is_not_json_is_an_invalid_response(): void
+    {
+        $this->assertFailsWith(OpenCollectiveException::INVALID_RESPONSE, [new Response(200, [], '<html>Bad gateway</html>')]);
+    }
 
-        $emptyOrdersResponse = json_encode([
-            'data' => [
-                'orders' => [
-                    'nodes' => [],
-                ],
-            ],
-        ]);
-
-        $mockClient = $this->createMock(Client::class);
-        $mockClient->expects($this->exactly(4))
-            ->method('post')
-            ->willReturnOnConsecutiveCalls(
-                new Response(200, [], $collectiveResponse),
-                new Response(200, [], $emptyOrdersResponse),
-                new Response(200, [], $emptyOrdersResponse),
-                new Response(200, [], $onetimeResponse)
-            );
-
-        $client = new OpenCollectiveClient($mockClient);
-        $result = $client->fetchBackers('test-token', 'test', false);
-
-        // Should only return 1 backer (deduplicated by account ID)
-        $this->assertCount(1, $result['backers']);
-        $this->assertEquals('account-1', $result['backers'][0]->fromAccount->id);
+    #[Test]
+    public function missing_orders_data_is_an_invalid_response_rather_than_no_backers(): void
+    {
+        $this->assertFailsWith(OpenCollectiveException::INVALID_RESPONSE, [$this->collective(), $this->json(['data' => ['orders' => null]])]);
     }
 }
