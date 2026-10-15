@@ -11,169 +11,74 @@
 
 namespace FoF\OpenCollective\Tests\integration;
 
-use Flarum\Extend;
-use Flarum\Group\Group;
-use Flarum\Testing\integration\ConsoleTestCase;
-use Flarum\User\User;
-use FoF\OpenCollective\Event\BackerAdded;
-use FoF\OpenCollective\Event\BackerRemoved;
+use FoF\OpenCollective\Backer;
+use FoF\OpenCollective\BackerStatus;
+use FoF\OpenCollective\Event\RecurringBackingStopped;
+use FoF\OpenCollective\Services\BackerSynchronizer;
 use FoF\OpenCollective\Tests\fixtures\FakeOpenCollectiveProvider;
 use GuzzleHttp\Psr7\Response;
-use Illuminate\Contracts\Events\Dispatcher;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
  * Runs the sync command end to end against a real database. Only Open
  * Collective's HTTP responses are faked.
  */
-class UpdateCommandTest extends ConsoleTestCase
+class UpdateCommandTest extends SyncTestCase
 {
-    protected const RECURRING_GROUP = 10;
-    protected const ONETIME_GROUP = 11;
-
-    /** @var array<int, object> */
-    protected array $events = [];
-
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->extension('fof-open-collective');
-        $this->extend((new Extend\ServiceProvider())->register(FakeOpenCollectiveProvider::class));
-        FakeOpenCollectiveProvider::reset();
-
-        $this->setting('fof-open-collective.api_key', 'token');
-        $this->setting('fof-open-collective.slug', 'test');
-        $this->setting('fof-open-collective.group_id', (string) self::RECURRING_GROUP);
-        $this->setting('fof-open-collective.onetime_group_id', (string) self::ONETIME_GROUP);
-
-        $this->prepareDatabase([
-            Group::class => [
-                ['id' => self::RECURRING_GROUP, 'name_singular' => 'Supporter', 'name_plural' => 'Supporters'],
-                ['id' => self::ONETIME_GROUP, 'name_singular' => 'Contributor', 'name_plural' => 'Contributors'],
-            ],
-            User::class => [
-                ['id' => 2, 'username' => 'alice', 'email' => 'alice@example.com', 'is_email_confirmed' => 1],
-                ['id' => 3, 'username' => 'bob', 'email' => 'bob@example.com', 'is_email_confirmed' => 1],
-                ['id' => 4, 'username' => 'carol', 'email' => 'carol@example.com', 'is_email_confirmed' => 1],
-                ['id' => 5, 'username' => 'dave', 'email' => 'dave@example.com', 'is_email_confirmed' => 1],
-            ],
-        ]);
-    }
-
-    protected function order(string $status, string $frequency, ?string $email): array
-    {
-        return [
-            'status'      => $status,
-            'frequency'   => $frequency,
-            'tier'        => ['name' => 'Backer'],
-            'fromAccount' => ['id' => 'acct-'.($email ?? uniqid()), 'email' => $email],
-        ];
-    }
-
-    /**
-     * @param array<int, int> $recurring user IDs the extension already manages in the recurring group
-     * @param array<int, int> $onetime   user IDs the extension already manages in the one-time group
-     */
-    protected function managed(array $recurring = [], array $onetime = []): void
-    {
-        $this->setting('fof-open-collective.users', json_encode($recurring));
-        $this->setting('fof-open-collective.onetime_users', json_encode($onetime));
-    }
-
-    /**
-     * @param array<int, array{0: int, 1: int}> $memberships [user ID, group ID] pairs
-     */
-    protected function members(array $memberships): void
-    {
-        $this->prepareDatabase([
-            'group_user' => array_map(fn ($pair) => ['user_id' => $pair[0], 'group_id' => $pair[1]], $memberships),
-        ]);
-    }
-
-    protected function sync(array $options = []): string
-    {
-        $this->app()->getContainer()->make(Dispatcher::class)->listen(
-            [BackerAdded::class, BackerRemoved::class],
-            fn (object $event) => $this->events[] = $event
-        );
-
-        return $this->runCommand(['command' => 'fof:open-collective:update'] + $options);
-    }
-
-    protected function inGroup(int $userId, int $groupId): bool
-    {
-        return $this->database()->table('group_user')->where(['user_id' => $userId, 'group_id' => $groupId])->exists();
-    }
-
-    /** @return array<int, int> */
-    protected function managedUsers(string $key = 'users'): array
-    {
-        return array_map('intval', json_decode($this->database()->table('settings')->where('key', "fof-open-collective.$key")->value('value') ?? '[]', true));
-    }
-
-    /** @return array<int, string> e.g. ["added:2", "removed:5"] */
-    protected function eventLog(): array
-    {
-        return array_map(fn ($event) => ($event instanceof BackerAdded ? 'added:' : 'removed:').$event->user->id, $this->events);
+        // Most tests describe an established install; the baseline run has its own tests.
+        $this->setting(BackerSynchronizer::BASELINE_SETTING, '2026-01-01T00:00:00+00:00');
     }
 
     #[Test]
-    public function backers_are_added_to_their_groups_and_recorded_as_managed(): void
+    public function a_new_recurring_backer_joins_the_recurring_group(): void
     {
-        FakeOpenCollectiveProvider::backers(
-            monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')],
-            onetime: [$this->order('PAID', 'ONETIME', 'bob@example.com')]
-        );
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
 
         $this->sync();
 
         $this->assertTrue($this->inGroup(2, self::RECURRING_GROUP));
+        $this->assertSame(['RecurringBackingStarted:2'], $this->eventLog());
+        $this->assertSame(BackerStatus::Recurring, Backer::find(2)->status);
+        $this->assertSame([self::RECURRING_GROUP], Backer::find(2)->managedGroupIds());
+    }
+
+    #[Test]
+    public function a_new_onetime_backer_joins_the_onetime_group(): void
+    {
+        FakeOpenCollectiveProvider::backers(onetime: [$this->order('PAID', 'ONETIME', 'bob@example.com')]);
+
+        $this->sync();
+
         $this->assertTrue($this->inGroup(3, self::ONETIME_GROUP));
-        $this->assertSame([2], $this->managedUsers('users'));
-        $this->assertSame([3], $this->managedUsers('onetime_users'));
-        $this->assertEqualsCanonicalizing(['added:2', 'added:3'], $this->eventLog());
+        $this->assertSame(['OneTimeBackingStarted:3'], $this->eventLog());
     }
 
     #[Test]
-    public function the_added_event_carries_the_backer_account(): void
+    public function status_events_carry_the_transition_account_and_groups(): void
     {
-        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
+        $this->known(5, BackerStatus::Recurring, [self::RECURRING_GROUP]);
+        $this->members([[5, self::RECURRING_GROUP]]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('CANCELLED', 'MONTHLY', 'dave@example.com')]);
 
         $this->sync();
 
-        $this->assertSame('alice@example.com', $this->events[0]->backerData->email ?? null);
+        $event = $this->events[0];
+        $this->assertInstanceOf(RecurringBackingStopped::class, $event);
+        $this->assertSame(BackerStatus::Recurring, $event->previous);
+        $this->assertSame(BackerStatus::OneTime, $event->current);
+        $this->assertSame('dave@example.com', $event->account->email ?? null);
+        $this->assertSame([self::RECURRING_GROUP], $event->oldGroupIds);
+        $this->assertSame([self::ONETIME_GROUP], $event->newGroupIds);
     }
 
     #[Test]
-    public function a_removal_only_run_drops_the_user_from_the_managed_list(): void
+    public function a_cancelled_subscriber_moves_to_the_onetime_group(): void
     {
-        $this->managed(recurring: [2, 5]);
-        $this->members([[2, self::RECURRING_GROUP], [5, self::RECURRING_GROUP]]);
-        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
-
-        $this->sync();
-
-        $this->assertFalse($this->inGroup(5, self::RECURRING_GROUP));
-        $this->assertSame([2], $this->managedUsers('users'));
-        $this->assertSame(['removed:5'], $this->eventLog());
-    }
-
-    #[Test]
-    public function members_added_by_hand_are_never_removed(): void
-    {
-        $this->members([[4, self::RECURRING_GROUP]]);
-        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
-
-        $this->sync();
-
-        $this->assertTrue($this->inGroup(4, self::RECURRING_GROUP));
-    }
-
-    #[Test]
-    public function a_cancelled_subscriber_moves_to_the_onetime_group_without_a_removed_event(): void
-    {
-        $this->managed(recurring: [5]);
+        $this->known(5, BackerStatus::Recurring, [self::RECURRING_GROUP]);
         $this->members([[5, self::RECURRING_GROUP]]);
         FakeOpenCollectiveProvider::backers(monthly: [$this->order('CANCELLED', 'MONTHLY', 'dave@example.com')]);
 
@@ -181,13 +86,123 @@ class UpdateCommandTest extends ConsoleTestCase
 
         $this->assertFalse($this->inGroup(5, self::RECURRING_GROUP));
         $this->assertTrue($this->inGroup(5, self::ONETIME_GROUP));
-        $this->assertSame(['added:5'], $this->eventLog());
+        $this->assertSame(['RecurringBackingStopped:5'], $this->eventLog());
+    }
+
+    #[Test]
+    public function a_onetime_backer_who_subscribes_moves_to_the_recurring_group(): void
+    {
+        $this->known(3, BackerStatus::OneTime, [self::ONETIME_GROUP]);
+        $this->members([[3, self::ONETIME_GROUP]]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'bob@example.com')]);
+
+        $this->sync();
+
+        $this->assertTrue($this->inGroup(3, self::RECURRING_GROUP));
+        $this->assertFalse($this->inGroup(3, self::ONETIME_GROUP));
+        $this->assertSame(['RecurringBackingStarted:3'], $this->eventLog());
+        $this->assertSame(BackerStatus::OneTime, $this->events[0]->previous);
+    }
+
+    #[Test]
+    public function a_backer_who_disappears_ends_their_backing_and_is_forgotten(): void
+    {
+        $this->known(3, BackerStatus::OneTime, [self::ONETIME_GROUP]);
+        $this->members([[3, self::ONETIME_GROUP]]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
+
+        $this->sync();
+
+        $this->assertFalse($this->inGroup(3, self::ONETIME_GROUP));
+        $this->assertContains('BackingEnded:3', $this->eventLog());
+        $this->assertNull(Backer::find(3));
+    }
+
+    #[Test]
+    public function a_member_added_by_hand_gets_status_events_but_is_never_removed(): void
+    {
+        $this->known(4, BackerStatus::Recurring, []);
+        $this->members([[4, self::RECURRING_GROUP]]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('CANCELLED', 'MONTHLY', 'carol@example.com')]);
+
+        $this->sync();
+
+        $this->assertTrue($this->inGroup(4, self::RECURRING_GROUP));
+        $this->assertTrue($this->inGroup(4, self::ONETIME_GROUP));
+        $this->assertSame(['RecurringBackingStopped:4'], $this->eventLog());
+    }
+
+    #[Test]
+    public function a_non_backer_added_by_hand_is_left_alone(): void
+    {
+        $this->members([[4, self::RECURRING_GROUP]]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
+
+        $this->sync();
+
+        $this->assertTrue($this->inGroup(4, self::RECURRING_GROUP));
+        $this->assertNull(Backer::find(4));
+    }
+
+    #[Test]
+    public function a_stale_membership_record_is_forgotten_without_being_reported(): void
+    {
+        $this->known(5, null, [self::RECURRING_GROUP]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
+
+        $output = $this->sync();
+
+        $this->assertStringNotContainsString('#5 dave', $output);
+        $this->assertNull(Backer::find(5));
+        $this->assertSame(['RecurringBackingStarted:2'], $this->eventLog());
+    }
+
+    #[Test]
+    public function a_backer_missing_from_their_group_is_restored_with_a_groups_event(): void
+    {
+        $this->known(2, BackerStatus::Recurring, [self::RECURRING_GROUP]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
+
+        $this->sync();
+
+        $this->assertTrue($this->inGroup(2, self::RECURRING_GROUP));
+        $this->assertSame(['BackerGroupsChanged:2'], $this->eventLog());
+    }
+
+    #[Test]
+    public function with_one_group_for_both_a_stopped_subscription_changes_status_only(): void
+    {
+        $this->setting('fof-open-collective.onetime_group_id', (string) self::RECURRING_GROUP);
+        $this->known(5, BackerStatus::Recurring, [self::RECURRING_GROUP]);
+        $this->members([[5, self::RECURRING_GROUP]]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('CANCELLED', 'MONTHLY', 'dave@example.com')]);
+
+        $this->sync();
+
+        $this->assertTrue($this->inGroup(5, self::RECURRING_GROUP));
+        $this->assertSame(['RecurringBackingStopped:5'], $this->eventLog());
+    }
+
+    #[Test]
+    public function without_a_onetime_group_a_stopped_subscription_just_leaves_the_recurring_group(): void
+    {
+        $this->setting('fof-open-collective.onetime_group_id', '');
+        $this->known(5, BackerStatus::Recurring, [self::RECURRING_GROUP]);
+        $this->members([[5, self::RECURRING_GROUP]]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('CANCELLED', 'MONTHLY', 'dave@example.com')]);
+
+        $this->sync();
+
+        $this->assertFalse($this->inGroup(5, self::RECURRING_GROUP));
+        $this->assertFalse($this->inGroup(5, self::ONETIME_GROUP));
+        $this->assertSame(BackerStatus::OneTime, Backer::find(5)->status);
+        $this->assertSame(['RecurringBackingStopped:5'], $this->eventLog());
     }
 
     #[Test]
     public function emails_are_matched_case_insensitively(): void
     {
-        $this->managed(recurring: [2]);
+        $this->known(2, BackerStatus::Recurring, [self::RECURRING_GROUP]);
         $this->members([[2, self::RECURRING_GROUP]]);
         FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'Alice@Example.COM')]);
 
@@ -200,23 +215,58 @@ class UpdateCommandTest extends ConsoleTestCase
     #[Test]
     public function a_dry_run_changes_nothing(): void
     {
-        $this->managed(recurring: [5]);
+        $this->known(5, BackerStatus::Recurring, [self::RECURRING_GROUP]);
         $this->members([[5, self::RECURRING_GROUP]]);
         FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
 
         $output = $this->sync(['--dry-run' => true]);
 
         $this->assertStringContainsString('DRY RUN', $output);
+        $this->assertStringContainsString('#2 alice: none → recurring, +Supporter', $output);
         $this->assertFalse($this->inGroup(2, self::RECURRING_GROUP));
         $this->assertTrue($this->inGroup(5, self::RECURRING_GROUP));
-        $this->assertSame([5], $this->managedUsers('users'));
+        $this->assertSame(BackerStatus::Recurring, Backer::find(5)->status);
+        $this->assertNull(Backer::find(2));
         $this->assertSame([], $this->eventLog());
+    }
+
+    #[Test]
+    public function the_first_sync_records_statuses_without_status_events(): void
+    {
+        $this->setting(BackerSynchronizer::BASELINE_SETTING, '');
+        $this->known(2, null, [self::RECURRING_GROUP]);
+        $this->members([[3, self::ONETIME_GROUP]]);
+        FakeOpenCollectiveProvider::backers(
+            monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')],
+            onetime: [$this->order('PAID', 'ONETIME', 'bob@example.com')]
+        );
+
+        $output = $this->sync();
+
+        $this->assertStringContainsString('First sync', $output);
+        $this->assertTrue($this->inGroup(2, self::RECURRING_GROUP));
+        $this->assertSame(BackerStatus::Recurring, Backer::find(2)->status);
+        $this->assertSame(BackerStatus::OneTime, Backer::find(3)->status);
+        // Restoring alice's membership is still recorded; bob's unchanged groups are not.
+        $this->assertSame(['BackerGroupsChanged:2'], $this->eventLog());
+        $this->assertNotEmpty($this->database()->table('settings')->where('key', BackerSynchronizer::BASELINE_SETTING)->value('value'));
+    }
+
+    #[Test]
+    public function a_dry_run_does_not_record_the_baseline(): void
+    {
+        $this->setting(BackerSynchronizer::BASELINE_SETTING, '');
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
+
+        $this->sync(['--dry-run' => true]);
+
+        $this->assertEmpty($this->database()->table('settings')->where('key', BackerSynchronizer::BASELINE_SETTING)->value('value'));
     }
 
     #[Test]
     public function a_token_missing_a_scope_changes_nothing_and_says_why(): void
     {
-        $this->managed(recurring: [5]);
+        $this->known(5, BackerStatus::Recurring, [self::RECURRING_GROUP]);
         $this->members([[5, self::RECURRING_GROUP]]);
         FakeOpenCollectiveProvider::reset([
             new Response(200, [], json_encode(['data' => ['collective' => ['name' => 'Test Collective', 'slug' => 'test']]])),
@@ -230,12 +280,13 @@ class UpdateCommandTest extends ConsoleTestCase
 
         $this->assertStringContainsString('missing a required scope', $output);
         $this->assertTrue($this->inGroup(5, self::RECURRING_GROUP));
+        $this->assertSame([], $this->eventLog());
     }
 
     #[Test]
     public function hidden_emails_change_nothing_and_say_why(): void
     {
-        $this->managed(recurring: [5]);
+        $this->known(5, BackerStatus::Recurring, [self::RECURRING_GROUP]);
         $this->members([[5, self::RECURRING_GROUP]]);
         FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', null)]);
 
@@ -246,9 +297,9 @@ class UpdateCommandTest extends ConsoleTestCase
     }
 
     #[Test]
-    public function no_backers_at_all_needs_force_to_remove_managed_members(): void
+    public function no_backers_at_all_needs_force_to_end_known_backings(): void
     {
-        $this->managed(recurring: [5]);
+        $this->known(5, BackerStatus::Recurring, [self::RECURRING_GROUP]);
         $this->members([[5, self::RECURRING_GROUP]]);
         FakeOpenCollectiveProvider::backers();
 
@@ -257,15 +308,16 @@ class UpdateCommandTest extends ConsoleTestCase
     }
 
     #[Test]
-    public function no_backers_at_all_with_force_removes_managed_members(): void
+    public function no_backers_at_all_with_force_ends_known_backings(): void
     {
-        $this->managed(recurring: [5]);
+        $this->known(5, BackerStatus::Recurring, [self::RECURRING_GROUP]);
         $this->members([[5, self::RECURRING_GROUP]]);
         FakeOpenCollectiveProvider::backers();
 
         $this->sync(['--force' => true]);
 
         $this->assertFalse($this->inGroup(5, self::RECURRING_GROUP));
+        $this->assertSame(['BackingEnded:5'], $this->eventLog());
     }
 
     #[Test]

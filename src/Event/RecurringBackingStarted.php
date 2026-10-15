@@ -11,14 +11,9 @@
 
 namespace FoF\OpenCollective\Event;
 
-use Flarum\User\User;
-
 /**
- * Event fired when a user is removed from the backers group.
+ * A user became a recurring backer, either new or upgrading from a one-time backing.
  */
-class BackerRemoved
+class RecurringBackingStarted extends AbstractBackerStatusChanged
 {
-    public function __construct(public User $user)
-    {
-    }
 }

@@ -17,20 +17,6 @@ use Illuminate\Support\Collection;
 class BackerMatcher
 {
     /**
-     * Match Open Collective backers to Flarum users.
-     *
-     * Uses email matching between backer emails and Flarum user emails.
-     *
-     * @param array $backers Array of backer data from Open Collective API
-     *
-     * @return Collection<User>
-     */
-    public function matchBackersToUsers(array $backers): Collection
-    {
-        return $this->matchBackersOfTypeToUsers($backers);
-    }
-
-    /**
      * Categorize backers by type (recurring vs one-time).
      *
      * @param array $backers Array of backer data from Open Collective API (Order objects)

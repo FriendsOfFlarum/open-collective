@@ -11,7 +11,7 @@ A [Flarum](http://flarum.org) extension that automatically synchronizes your Ope
 - 🎯 **Dual Group Support**: Separate groups for recurring and one-time backers
 - 🔄 **Status-Based Categorization**: Automatically moves past recurring backers to one-time group
 - 🔒 **Safe Group Management**: Only manages users it adds, won't interfere with manually assigned groups
-- 📝 **Detailed Logging**: Tracks all changes in dedicated log files
+- 📝 **Audit Log**: With [Audit](https://docs.flarum.org/extensions/audit) enabled, every status and group change the sync makes is recorded
 - 🧪 **Dry-Run Mode**: Preview changes before applying them
 - 📊 **Verbose Output**: Detailed information about the synchronization process
 
@@ -26,7 +26,7 @@ This extension connects your Open Collective account with your Flarum forum by:
 3. **Matching Users**: Identifies Flarum users by matching email addresses from Open Collective backers with Flarum user emails
 4. **Managing Groups**: Automatically adds backers to designated Flarum groups and removes users who are no longer backers
 5. **Handling Transitions**: When a recurring backer's subscription ends, they are automatically moved to the one-time backers group
-6. **Tracking Changes**: Logs all additions, removals, and transitions to help you monitor the process
+6. **Tracking Changes**: Remembers each backer's status, fires an event when it changes, and records every change in the audit log when [Audit](https://docs.flarum.org/extensions/audit) is enabled
 
 ## Installation
 
@@ -125,20 +125,13 @@ Combine both options for detailed preview:
 php flarum fof:open-collective:update --dry-run -v
 ```
 
-### Viewing Logs
+### Monitoring the Sync
 
-Check the synchronization logs:
+- **Changes**: with the [Audit](https://docs.flarum.org/extensions/audit) extension enabled, every change the sync makes is recorded in the audit log: a backer starting or stopping a recurring backing, becoming a one-time backer, no longer being a backer, or being restored to a group they were missing from. Search the log with `action:fof_open_collective.*`, or `user:<username>` for one person.
+- **Errors**: failed syncs (a rejected token, a missing scope, an unreachable API) are written to Flarum's log in `storage/logs/`.
+- **Manually**: run the command yourself, with `--dry-run -v` to see what it would change without changing anything.
 
-```bash
-tail -f storage/logs/fof-open-collective.log
-```
-
-Log output includes:
-- Number of backers found on Open Collective
-- Number of backers matched to Flarum users
-- Users added to the group (with `+ #userID username`)
-- Users removed from the group (with `- #userID username`)
-- Any API errors or configuration issues
+The first sync after installing or upgrading records every backer's current status without announcing them as new backers. Only group memberships it restores on that run are recorded.
 
 ## How User Matching Works
 
@@ -161,68 +154,51 @@ The extension matches Open Collective backers to Flarum users by comparing email
 
 ## For Developers: Event System
 
-This extension dispatches events when backers are added or removed, allowing other extensions to react to these changes.
+The extension remembers each matched user's backer status (none, one-time or recurring) and fires an event whenever it changes. Events describe the backing, not the groups: they fire for every matched user, including members an admin added to a group by hand, and whether or not a one-time group is configured.
 
-### Available Events
+### Status events
 
-#### `FoF\OpenCollective\Event\BackerAdded`
+| Event | Fired when |
+|---|---|
+| `FoF\OpenCollective\Event\RecurringBackingStarted` | A user becomes a recurring backer, new or upgrading from a one-time backing |
+| `FoF\OpenCollective\Event\RecurringBackingStopped` | A recurring backer's subscription is cancelled or paused; they remain a past, one-time backer |
+| `FoF\OpenCollective\Event\OneTimeBackingStarted` | A user who was not a backer makes a one-time contribution |
+| `FoF\OpenCollective\Event\BackingEnded` | A user is no longer a backer at all, for example after a refund |
 
-Dispatched when a user is added to the backers group.
+All four extend `AbstractBackerStatusChanged` and implement `BackerStatusChanged`, so you can listen to the interface to react to every change. Each carries:
 
-**Properties:**
-- `$user` (Flarum\User\User) - The Flarum user who was added
-- `$backerData` (object|null) - The backer's Open Collective account:
-  - `id` - Open Collective account ID
-  - `email` - Backer's email address
+- `$user` (`Flarum\User\User`)
+- `$previous`, `$current` (`FoF\OpenCollective\BackerStatus|null`): the status before and after; `null` means not a backer
+- `$account` (`object|null`): the Open Collective account (`id`, `email`); `null` when the backing ended
+- `$oldGroupIds`, `$newGroupIds` (`int[]`): the user's groups before and after this sync
 
-**Example listener:**
+### Group repairs
 
-```php
-use Flarum\Extend;
-use FoF\OpenCollective\Event\BackerAdded;
+`FoF\OpenCollective\Event\BackerGroupsChanged` fires when the sync changes a user's groups without their status changing, such as re-adding a backer who was missing from their group. It carries `$user`, `$oldGroupIds` and `$newGroupIds`.
 
-return [
-    (new Extend\Event)
-        ->listen(BackerAdded::class, function (BackerAdded $event) {
-            $user = $event->user;
-            $email = $event->backerData->email ?? null;
-
-            // Your custom logic here
-            // e.g., send a welcome email, grant additional permissions, etc.
-        }),
-];
-```
-
-#### `FoF\OpenCollective\Event\BackerRemoved`
-
-Dispatched when a user is removed from the backers group (backing ended).
-
-**Properties:**
-- `$user` (Flarum\User\User) - The Flarum user who was removed
-
-**Example listener:**
+### Example listener
 
 ```php
 use Flarum\Extend;
-use FoF\OpenCollective\Event\BackerRemoved;
+use FoF\OpenCollective\Event\RecurringBackingStopped;
 
 return [
-    (new Extend\Event)
-        ->listen(BackerRemoved::class, function (BackerRemoved $event) {
-            $user = $event->user;
-
-            // Your custom logic here
-            // e.g., send a thank you message, revoke special access, etc.
+    (new Extend\Event())
+        ->listen(RecurringBackingStopped::class, function (RecurringBackingStopped $event) {
+            // e.g. thank $event->user for their support so far
         }),
 ];
 ```
 
 ### Notes on Events
 
-- Events are **not dispatched** when running with the `--dry-run` flag
-- Events fire after the database changes have been made
-- The `BackerAdded` event includes raw Open Collective data for additional context
-- These events only fire for automated changes, not manual group assignments
+- Events fire after the database changes have been made, and never in `--dry-run` mode.
+- The first sync after installing or upgrading records statuses without status events, so existing backers are not announced as new. Group repairs on that run still fire `BackerGroupsChanged`.
+- Group memberships are only removed where the extension added them. Members an admin added by hand still get status events but keep their groups.
+
+### Upgrading from 1.x
+
+`BackerAdded` and `BackerRemoved` were removed in 2.0. `BackerAdded` maps to `RecurringBackingStarted` or `OneTimeBackingStarted`; `BackerRemoved` maps to `RecurringBackingStopped` or `BackingEnded`.
 
 ## Troubleshooting
 
@@ -231,7 +207,7 @@ return [
 - Verify your token is correct and has proper permissions
 - Check that the collective slug matches your Open Collective account exactly
 - Ensure the cron job is running (`schedule:run`)
-- Check logs in `storage/logs/fof-open-collective.log`
+- Check Flarum's log in `storage/logs/` for errors, and the audit log for changes
 
 ### Some backers aren't being matched
 
