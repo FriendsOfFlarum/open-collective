@@ -15,6 +15,7 @@ use FoF\OpenCollective\Backer;
 use FoF\OpenCollective\BackerStatus;
 use FoF\OpenCollective\Event\RecurringBackingStopped;
 use FoF\OpenCollective\Services\BackerSynchronizer;
+use FoF\OpenCollective\Services\SyncStatus;
 use FoF\OpenCollective\Tests\fixtures\FakeOpenCollectiveProvider;
 use GuzzleHttp\Psr7\Response;
 use PHPUnit\Framework\Attributes\Test;
@@ -329,5 +330,59 @@ class UpdateCommandTest extends SyncTestCase
 
         $this->assertMatchesRegularExpression('/^[A-Z][a-z]{2} \d{2}, \d{4} @ \d{2}:\d{2} [AP]M \| Retrieving/m', $output);
         $this->assertDoesNotMatchRegularExpression('/@ \d{2}:\d{2} [AP]M \| [A-Z][a-z]{2} \d{2}, \d{4} @/', $output);
+    }
+
+    /** @return array<string, mixed>|null */
+    protected function lastSync(): ?array
+    {
+        return json_decode($this->database()->table('settings')->where('key', SyncStatus::SETTING)->value('value') ?? 'null', true);
+    }
+
+    #[Test]
+    public function a_successful_sync_records_its_outcome(): void
+    {
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
+
+        $this->sync();
+
+        $last = $this->lastSync();
+        $this->assertTrue($last['ok']);
+        $this->assertSame(1, $last['backers']);
+        $this->assertSame(1, $last['changes']);
+        $this->assertNotEmpty($last['at']);
+    }
+
+    #[Test]
+    public function a_failed_sync_records_why(): void
+    {
+        FakeOpenCollectiveProvider::reset([new Response(401, [], json_encode(['error' => ['message' => 'Invalid Personal Token (Api Key)']]))]);
+
+        $this->sync();
+
+        $last = $this->lastSync();
+        $this->assertFalse($last['ok']);
+        $this->assertSame('unauthorized', $last['kind']);
+        $this->assertSame('Invalid Personal Token (Api Key)', $last['message']);
+    }
+
+    #[Test]
+    public function a_refused_empty_result_is_recorded_as_a_failure(): void
+    {
+        $this->known(5, BackerStatus::Recurring, [self::RECURRING_GROUP]);
+        FakeOpenCollectiveProvider::backers();
+
+        $this->sync();
+
+        $this->assertSame('no_backers', $this->lastSync()['kind']);
+    }
+
+    #[Test]
+    public function a_dry_run_does_not_record_an_outcome(): void
+    {
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
+
+        $this->sync(['--dry-run' => true]);
+
+        $this->assertNull($this->lastSync());
     }
 }
