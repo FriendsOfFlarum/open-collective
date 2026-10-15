@@ -23,7 +23,9 @@ use FoF\OpenCollective\BackerStatus;
  *
  * The contract is duck-typed so sources need no shared package: an invokable
  * registered under the {@see self::TAG} container tag, taking user IDs and a group
- * ID and returning the subset of those user IDs it wants in that group.
+ * ID and returning the subset of those user IDs it wants in that group. Answers
+ * reflect what the source would actually do, not just its raw status, and must not
+ * call other sources (they call this one).
  */
 class BackerGroupClaims
 {
@@ -46,9 +48,16 @@ class BackerGroupClaims
             return [];
         }
 
-        return Backer::query()
-            ->whereIn('user_id', $userIds)
-            ->whereIn('status', $statuses)
+        $recurring = (int) $this->settings->get('fof-open-collective.group_id');
+        $query = Backer::query()->whereIn('user_id', $userIds)->whereIn('status', $statuses);
+
+        // Report what the sync would actually do: a one-time backer who is already in
+        // the recurring group is not kept in the one-time group, so is not claimed for it.
+        if ($groupId !== $recurring) {
+            $query->whereNotIn('user_id', fn ($members) => $members->select('user_id')->from('group_user')->where('group_id', $recurring));
+        }
+
+        return $query
             ->pluck('user_id')
             ->map(fn ($id) => (int) $id)
             ->all();

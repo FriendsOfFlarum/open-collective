@@ -156,6 +156,7 @@ The extension matches Open Collective backers to Flarum users by comparing email
 - **It only removes memberships it owns**, and only when no other supporter source still wants the user in that group. With [GitHub Sponsors](https://github.com/FriendsOfFlarum/github-sponsors) managing the same groups, someone who supports through both never loses a group because one of them ended.
 - **A supporter is never in both groups.** The recurring group wins: a recurring backer is taken out of the one-time group, even if they were added to it by hand, and anyone already in the recurring group is not also put in the one-time group.
 - **Members nobody wants are left alone.** Hand-added members who are not backers are never touched.
+- **Sources never fight.** A membership is only added when some source wants it and only removed when none does, so the syncs settle on one result. Give every source the same recurring and one-time groups: if they are mapped the other way round, a supporter can end up in both groups, but nothing flips back and forth.
 
 ## Important Notes
 
@@ -228,7 +229,7 @@ class MySourceClaims
 }
 ```
 
-The contract is a plain string tag, so sources need no shared package. This extension's own answer comes from `FoF\OpenCollective\Services\BackerGroupClaims`. Adopting a membership fires `FoF\OpenCollective\Event\BackerMembershipAdopted` (`$user`, `$groupIds`).
+The contract is a plain string tag, so sources need no shared package. Answer with what your source would actually do (for example, do not claim a one-time supporter who is already in the recurring group), and never call other sources from it. This extension's own answer comes from `FoF\OpenCollective\Services\BackerGroupClaims`. Adopting a membership fires `FoF\OpenCollective\Event\BackerMembershipAdopted` (`$user`, `$groupIds`).
 
 ### Upgrading from 1.x
 

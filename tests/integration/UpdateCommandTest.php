@@ -220,8 +220,9 @@ class UpdateCommandTest extends SyncTestCase
     }
 
     #[Test]
-    public function the_recurring_group_wins_over_another_sources_onetime_claim(): void
+    public function another_sources_onetime_claim_is_dropped_by_that_source_and_then_cleared(): void
     {
+        // Round 1: the other source still claims the one-time membership, so it stays.
         FakeOtherSupporterSource::$wants = [self::ONETIME_GROUP => [2]];
         $this->members([[2, self::ONETIME_GROUP]]);
         FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
@@ -229,7 +230,47 @@ class UpdateCommandTest extends SyncTestCase
         $this->sync();
 
         $this->assertTrue($this->inGroup(2, self::RECURRING_GROUP));
+        $this->assertTrue($this->inGroup(2, self::ONETIME_GROUP));
+
+        // Round 2: seeing the recurring membership, the other source stops claiming it,
+        // as BackerGroupClaims does, and the one-time membership goes.
+        FakeOtherSupporterSource::$wants = [];
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
+        $this->runCommand(['command' => 'fof:open-collective:update']);
+
+        $this->assertTrue($this->inGroup(2, self::RECURRING_GROUP));
         $this->assertFalse($this->inGroup(2, self::ONETIME_GROUP));
+    }
+
+    #[Test]
+    public function a_source_mapping_the_groups_the_other_way_round_causes_no_tug_of_war(): void
+    {
+        // The other source treats this extension's one-time group as its monthly group
+        // and has put alice there; this extension has alice as a recurring backer.
+        FakeOtherSupporterSource::$wants = [self::ONETIME_GROUP => [2]];
+        $this->members([[2, self::ONETIME_GROUP]]);
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
+        $this->sync();
+
+        FakeOpenCollectiveProvider::backers(monthly: [$this->order('ACTIVE', 'MONTHLY', 'alice@example.com')]);
+        $second = $this->runCommand(['command' => 'fof:open-collective:update']);
+
+        // Both memberships stay, and a second run changes nothing: no battle.
+        $this->assertTrue($this->inGroup(2, self::RECURRING_GROUP));
+        $this->assertTrue($this->inGroup(2, self::ONETIME_GROUP));
+        $this->assertStringContainsString('No changes needed', $second);
+    }
+
+    #[Test]
+    public function a_onetime_backer_already_in_the_recurring_group_is_not_claimed_for_the_onetime_group(): void
+    {
+        $this->known(2, BackerStatus::OneTime, []);
+        $this->known(3, BackerStatus::OneTime, []);
+        $this->members([[2, self::RECURRING_GROUP]]);
+
+        $claims = $this->app()->getContainer()->make(BackerGroupClaims::class);
+
+        $this->assertSame([3], $claims([2, 3], self::ONETIME_GROUP));
     }
 
     #[Test]
